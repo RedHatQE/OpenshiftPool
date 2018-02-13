@@ -1,0 +1,211 @@
+---
+heat_template_version: 2013-05-23
+
+description: >
+  HOT template to create a new neutron network plus a router to the public
+  network, and for deploying two servers into the new network.
+  The template also assigns floating IP addresses to each server so they are
+  routable from the public network.
+parameters:
+  key_name:
+    type: string
+    description: Name of keypair to assign to servers
+  image:
+    type: string
+    description: Name of image to use for servers
+  flavor:
+    type: string
+    description: Flavor to use for servers
+  public_net:
+    type: string
+    description: >
+      ID or name of public network for which floating IP addresses
+      will be allocated.
+  private_net_name:
+    type: string
+    description: Name of private network to be created
+  private_net_cidr:
+    type: string
+    description: Private network address (CIDR notation)
+  private_net_gateway:
+    type: string
+    description: Private network gateway address
+  private_net_pool_start:
+    type: string
+    description: Start of private network IP address allocation pool
+  private_net_pool_end:
+    type: string
+    description: End of private network IP address allocation pool
+  dns:
+    type: comma_delimited_list
+    label: DNS nameservers
+    description: |
+        Comma separated list of DNS nameservers for the private network.
+    default: ''
+  jenkins_build_url:
+    type: string
+    description: URL to the build which created this stack.
+    default: ""
+
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: private_net_name }
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: { get_param: private_net_cidr }
+      gateway_ip: { get_param: private_net_gateway }
+      dns_nameservers: { get_param: dns }
+      allocation_pools:
+        - start: { get_param: private_net_pool_start }
+          end: { get_param: private_net_pool_end }
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  ose3_master:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: ose3-master.suffix%.cmqe.eng.bos.redhat.com
+          params:
+            "suffix%": { get_attr: [ ose_deployment_pqdn, value ] }
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: ose3_master_port }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: { get_resource: server_init }
+
+  ose3_master_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+
+  ose3_master_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: public_net }
+      port_id: { get_resource: ose3_master_port }
+
+{% for n in range(nodes_count) %}
+
+  ose3_node{{ n }}:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: ose3-node{{ n }}.suffix%.cmqe.eng.bos.redhat.com
+          params:
+            "suffix%": { get_attr: [ ose_deployment_pqdn, value ] }
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: ose3_node{{ n }}_port }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: { get_resource: server_init }
+
+  ose3_node{{ n }}_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+
+  ose3_node{{ n }}_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: public_net }
+      port_id: { get_resource: ose3_node{{ n }}_port }
+
+{% endfor %}
+
+  boot_config:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        final_message: >
+            cloud-init boot finished at $TIMESTAMP. Up $UPTIME seconds
+
+  boot_script:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config: |
+        #!/bin/bash
+        sed -i -e 's/^Defaults\s\+requiretty/# \0/' /etc/sudoers
+
+  set_cmqe_meta_script:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            echo JENKINS_BUILD_URL="$jenkins_build_url" > /cmqe_meta
+          params:
+            $jenkins_build_url: { get_param: jenkins_build_url }
+
+
+  server_init:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+        - config: { get_resource: boot_config }
+        - config: { get_resource: boot_script }
+        - config: { get_resource: set_cmqe_meta_script }
+
+  ose_deployment_pqdn:
+    type: OS::Heat::RandomString
+    properties:
+      length: 5
+      salt: { get_param: "OS::stack_name" }
+      # We need to make this string dns-name compatible.
+      character_classes:
+        - { "min": 1, "class": lowercase }
+        - { "min": 1, "class": digits }
+
+outputs:
+  ose_deployment_pqdn:
+    description: The suffix of the instances names
+    value: { get_attr: [ ose_deployment_pqdn, value ] }
+  ose3_master_private_ip:
+    description: IP address of ose3_master in private network
+    value: { get_attr: [ ose3_master, first_address ] }
+  ose3_master_public_ip:
+    description: Floating IP address of ose3_master in public network
+    value: { get_attr: [ ose3_master_floating_ip, floating_ip_address ] }
+  ose3_master_name:
+    description: Instance name of the openshift master node.
+    value: { get_attr: [ ose3_master, name ] }
+{% for n in range(nodes_count) %}
+  ose3_node{{ n }}_private_ip:
+    description: IP address of ose3_node{{ n }} in private network
+    value: { get_attr: [ ose3_node{{ n }}, first_address ] }
+  ose3_node{{ n }}_public_ip:
+    description: Floating IP address of ose3_node{{ n }} in public network
+    value: { get_attr: [ ose3_node{{ n }}_floating_ip, floating_ip_address ] }
+  ose3_node{{ n }}_name:
+    description: Instance name of the openshift node{{ n }}.
+    value: { get_attr: [ ose3_node{{ n }}, name ] }
+{% endfor %}
+    

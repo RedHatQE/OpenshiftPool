@@ -1,0 +1,11 @@
+---
+parameters:
+  private_net_name: "openshift"
+  private_net_cidr: "192.168.1.0/24"
+  private_net_gateway: "192.168.1.254"
+  private_net_pool_start: "192.168.1.2"
+  private_net_pool_end: "192.168.1.250"
+  public_net: "10.8.240.0"
+  key_name: "cmqe-people"
+  flavor: "m1.large"
+  image: rhel-7.4-server-x86_64-latest
