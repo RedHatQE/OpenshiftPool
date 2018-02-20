@@ -1,0 +1,41 @@
+[OSv3:children]
+masters
+nodes
+etcd
+
+[OSv3:vars]
+ansible_ssh_user=root
+deployment_type=openshift-enterprise
+
+openshift_disable_check=disk_availability,docker_storage,memory_availability,docker_image_availability
+
+osm_use_cockpit=true
+
+openshift_set_hostname=true
+openshift_master_default_subdomain={{ openshift_master_default_subdomain }}
+openshift_metrics_hawkular_hostname=hawkular-metrics.{{ openshift_master_default_subdomain }}
+
+# metrics
+openshift_hosted_metrics_deploy=true
+
+[ose_deployer]
+# Workaround  Start and enable iptables service hanging
+# https://github.com/openshift/openshift-ansible/issues/747
+#
+# This template is gonna be rendered on one of the masters and the
+# ansible-playbook with the result will be started on it. We want to set
+# the ansible connection to local on such host.
+{{ master_host }} ansible_connection=local
+
+[etcd]
+{{ master_host }} 
+
+[masters]
+{{ master_host }}
+
+[nodes]
+{{ master_host }} openshift_hostname={{ master_host }}
+{{ infra_node }} openshift_hostname={{ infra_node }} openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+{% for host in primary_nodes %}
+{{ host }} openshift_hostname={{ host }} openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
+{% endfor %}

@@ -1,0 +1,51 @@
+---
+- name: "Create inventory"
+  template:
+    src: "templates/inventory.j2"
+    dest: "{{ path_to_inventory }}"
+    mode: "0644"
+
+- name: "Generate the cmdline"
+  set_fact:
+    ose_ansible_playbook_cmdline: "ansible-playbook --ssh-common-args '-o StrictHostKeyChecking=no' -b --become-user root -vv -i {{ path_to_inventory }} {{ path_to_playbook }}"
+
+- name: "Display the cmdline"
+  debug: var=ose_ansible_playbook_cmdline
+
+- name: "Execute openshift-ansible playbook"
+  shell: "{{ ose_ansible_playbook_cmdline }} 2>&1 | tee {{ path_to_ansible_log }}"
+  args:
+    executable: "/bin/bash"
+    chdir: "/root"
+    creates: "{{ path_to_ansible_log }}"
+  tags:
+    - skip_ansible_lint
+
+- name: "Copy logs from master"
+  fetch:
+    src: "{{ item }}"
+    dest: "{{ logs_directory }}/"
+  with_items:
+    - "{{ path_to_inventory }}"
+    - "{{ path_to_ansible_log }}"
+
+- name: "Check ansible log for failures"
+  shell: "grep 'failed=[^0]' {{ path_to_ansible_log }}"
+  args:
+    executable: "/bin/bash"
+  tags:
+    - skip_ansible_lint
+  register: "ansible_log_check"
+  ignore_errors: true
+
+- name: "Fail in case there are failures in ansible log"
+  fail:
+    msg: "There are failures in ose-ansible log, please take a look at it"
+  when: ansible_log_check.rc == 0
+
+- name: "Verify router pod is up (the deployer timeout is 600 seconds)"
+  shell: "oc get pods -n default | grep router-1"
+  register: router_status
+  until: router_status.stdout.find("Running") != -1
+  retries: 100
+  delay: 6

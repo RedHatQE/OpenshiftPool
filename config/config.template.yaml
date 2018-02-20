@@ -1,0 +1,25 @@
+subscription_manager:
+  username: 
+  password: 
+  pool: 
+  auth_server: 
+private_key_file: 
+openstack:
+  auth_url: 
+  project_name: 
+  tenant_name: 
+  username: 
+  password: 
+  tenant_id: 
+  region_id: 
+  dns_zone: 
+  parameters:
+    private_net_name: 
+    private_net_cidr: 
+    private_net_gateway: 
+    private_net_pool_start: 
+    private_net_pool_end: 
+    public_net: 
+    key_name: 
+    flavor: 
+    image: 

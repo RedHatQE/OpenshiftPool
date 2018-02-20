@@ -76,65 +76,65 @@ resources:
       router_id: { get_resource: router }
       subnet_id: { get_resource: private_subnet }
 
-  ose3_master:
+  ocp_master:
     type: OS::Nova::Server
     properties:
       name:
         str_replace:
-          template: ose3-master.suffix%.cmqe.eng.bos.redhat.com
+          template: ocp-master.suffix%.{{ params['dns_zone'] }}
           params:
-            "suffix%": { get_attr: [ ose_deployment_pqdn, value ] }
+            "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
       image: { get_param: image }
       flavor: { get_param: flavor }
-      key_name: { get_param: key_name }
+      key_name: secret
       networks:
-        - port: { get_resource: ose3_master_port }
+        - port: { get_resource: ocp_master_port }
       user_data_format: SOFTWARE_CONFIG
       user_data: { get_resource: server_init }
 
-  ose3_master_port:
+  ocp_master_port:
     type: OS::Neutron::Port
     properties:
       network_id: { get_resource: private_net }
       fixed_ips:
         - subnet_id: { get_resource: private_subnet }
 
-  ose3_master_floating_ip:
+  ocp_master_floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
       floating_network: { get_param: public_net }
-      port_id: { get_resource: ose3_master_port }
+      port_id: { get_resource: ocp_master_port }
 
-{% for n in range(nodes_count) %}
+{% for n in range(params['number_of_nodes']) %}
 
-  ose3_node{{ n }}:
+  ocp_node{{ n }}:
     type: OS::Nova::Server
     properties:
       name:
         str_replace:
-          template: ose3-node{{ n }}.suffix%.cmqe.eng.bos.redhat.com
+          template: ocp-node{{ n }}.suffix%.{{ params['dns_zone'] }}
           params:
-            "suffix%": { get_attr: [ ose_deployment_pqdn, value ] }
+            "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
       image: { get_param: image }
       flavor: { get_param: flavor }
-      key_name: { get_param: key_name }
+      key_name: secret
       networks:
-        - port: { get_resource: ose3_node{{ n }}_port }
+        - port: { get_resource: ocp_node{{ n }}_port }
       user_data_format: SOFTWARE_CONFIG
       user_data: { get_resource: server_init }
 
-  ose3_node{{ n }}_port:
+  ocp_node{{ n }}_port:
     type: OS::Neutron::Port
     properties:
       network_id: { get_resource: private_net }
       fixed_ips:
         - subnet_id: { get_resource: private_subnet }
 
-  ose3_node{{ n }}_floating_ip:
+  ocp_node{{ n }}_floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
       floating_network: { get_param: public_net }
-      port_id: { get_resource: ose3_node{{ n }}_port }
+      port_id: { get_resource: ocp_node{{ n }}_port }
 
 {% endfor %}
 
@@ -174,7 +174,7 @@ resources:
         - config: { get_resource: boot_script }
         - config: { get_resource: set_cmqe_meta_script }
 
-  ose_deployment_pqdn:
+  ocp_deployment_pqdn:
     type: OS::Heat::RandomString
     properties:
       length: 5
@@ -185,27 +185,27 @@ resources:
         - { "min": 1, "class": digits }
 
 outputs:
-  ose_deployment_pqdn:
+  ocp_deployment_pqdn:
     description: The suffix of the instances names
-    value: { get_attr: [ ose_deployment_pqdn, value ] }
-  ose3_master_private_ip:
-    description: IP address of ose3_master in private network
-    value: { get_attr: [ ose3_master, first_address ] }
-  ose3_master_public_ip:
-    description: Floating IP address of ose3_master in public network
-    value: { get_attr: [ ose3_master_floating_ip, floating_ip_address ] }
-  ose3_master_name:
+    value: { get_attr: [ ocp_deployment_pqdn, value ] }
+  ocp_master_private_ip:
+    description: IP address of ocp_master in private network
+    value: { get_attr: [ ocp_master, first_address ] }
+  ocp_master_public_ip:
+    description: Floating IP address of ocp_master in public network
+    value: { get_attr: [ ocp_master_floating_ip, floating_ip_address ] }
+  ocp_master_name:
     description: Instance name of the openshift master node.
-    value: { get_attr: [ ose3_master, name ] }
-{% for n in range(nodes_count) %}
-  ose3_node{{ n }}_private_ip:
-    description: IP address of ose3_node{{ n }} in private network
-    value: { get_attr: [ ose3_node{{ n }}, first_address ] }
-  ose3_node{{ n }}_public_ip:
-    description: Floating IP address of ose3_node{{ n }} in public network
-    value: { get_attr: [ ose3_node{{ n }}_floating_ip, floating_ip_address ] }
-  ose3_node{{ n }}_name:
+    value: { get_attr: [ ocp_master, name ] }
+{% for n in range(params['number_of_nodes']) %}
+  ocp_node{{ n }}_private_ip:
+    description: IP address of ocp_node{{ n }} in private network
+    value: { get_attr: [ ocp_node{{ n }}, first_address ] }
+  ocp_node{{ n }}_public_ip:
+    description: Floating IP address of ocp_node{{ n }} in public network
+    value: { get_attr: [ ocp_node{{ n }}_floating_ip, floating_ip_address ] }
+  ocp_node{{ n }}_name:
     description: Instance name of the openshift node{{ n }}.
-    value: { get_attr: [ ose3_node{{ n }}, name ] }
+    value: { get_attr: [ ocp_node{{ n }}, name ] }
 {% endfor %}
     

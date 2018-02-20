@@ -1,0 +1,6 @@
+{% for i in host_ips.keys() %}
+update delete {{ host_names[i] }}
+{% endfor %}
+
+update delete *.apps.{{ ocp_servers_domain }}
+send

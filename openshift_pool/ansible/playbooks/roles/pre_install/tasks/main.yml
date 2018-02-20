@@ -1,0 +1,85 @@
+- name: "Deploy keys for root"
+  become: true
+  become_method: sudo
+  copy:
+    src: "{{ config_dir }}/keys/stack/{{ item }}"
+    dest: "/root/.ssh/{{ item }}"
+    mode: "0600"
+  with_items:
+    - "id_rsa"
+    - "id_rsa.pub"
+
+- name: "Deploy keys for cloud-user"
+  become: true
+  become_method: sudo
+  copy:
+    src: "{{ config_dir }}/keys/stack/{{ item }}"
+    dest: "/home/cloud-user/.ssh/{{ item }}"
+    mode: "0600"
+  with_items:
+    - "id_rsa"
+    - "id_rsa.pub"
+
+- name: "Exchange keys for root"
+  authorized_key:
+    user: "root"
+    key: "{{ lookup('file', '{{ config_dir }}/keys/stack/id_rsa.pub') }}"
+    state: "present"
+
+- name: "Exchange keys for cloud-user"
+  authorized_key:
+    user: "cloud-user"
+    key: "{{ lookup('file', '{{ config_dir }}/keys/stack/id_rsa.pub') }}"
+    state: "present"
+
+- name: "Update subscription auth server"
+  replace:
+      path: /etc/rhsm/rhsm.conf
+      regexp: 'hostname = (.*)'
+      replace: 'hostname = {{ auth_server }}'
+      backup: yes
+
+- name: Register as user ("{{ subscription_username }}").
+  redhat_subscription:
+      state: present
+      username: "{{ subscription_username }}"
+      password: "{{ subscription_password }}"
+      autosubscribe: true
+
+- name: Disable all repositories
+  shell: subscription-manager repos --disable="*"
+
+- name: Enable repositories
+  shell: subscription-manager repos \
+          --enable="rhel-7-server-rpms" \
+          --enable="rhel-7-server-extras-rpms" \
+          --enable="rhel-7-server-ose-{{ ocp_version }}-rpms" \
+          --enable="rhel-7-fast-datapath-rpms"
+
+- name: Installing delta RPM
+  # Reason:
+  #     https://unix.stackexchange.com/questions/277900/do-i-need-to-do-something-about-delta-rpms-disabled
+  #     https://www.pks.mpg.de/~mueller/docs/suse10.2/html/opensuse-manual_en/manual/sec.rpm.delta.html
+  yum:
+      name: deltarpm
+      state: latest
+- name: Updating yum
+  yum:
+      name: '*'
+      state: latest
+- name: Installing reqired packages
+  yum:
+      name: "{{ item }}"
+      state: latest
+  with_items:
+      - wget
+      - git
+      - net-tools
+      - bind-utils
+      - iptables-services
+      - bridge-utils
+      - bash-completion
+      - kexec-tools
+      - sos
+      - psacct
+      - atomic-openshift-utils

@@ -1,0 +1,5 @@
+1. Condense all config data in config.yaml
+2. remove common.write_file and set WORKSPACE as cwd
+3. creating workspace archive for deleted clusters
+4. Add option for multiple masters AND find a way to label nodes (i.e. master, infra, node, etc.), currently we differentiate among nodes only by name.
+5. Check whether is possible to delete all domains by "update delete *.<zone>"

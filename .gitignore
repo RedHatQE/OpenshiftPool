@@ -1,2 +1,11 @@
 .project
 .pydevproject
+*.pyc
+*.config
+.env
+.pytest_cache
+.settings
+config/keys/*
+config/config.yaml
+workspace
+*.retry
