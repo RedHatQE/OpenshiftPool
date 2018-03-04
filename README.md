@@ -1,2 +1,2 @@
 # OpenshiftPool
-an OpenShift On Openstack Pool
+an OpenShift On Openstack deployer
