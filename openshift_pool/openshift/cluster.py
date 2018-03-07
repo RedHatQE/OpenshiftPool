@@ -1,11 +1,11 @@
 from openshift_pool.common import Singleton
-from openshift_pool.openshift.stack import Stack, StackFactory
+from openshift_pool.openshift.stack import Stack, StackBuilder
 from openshift_pool.openshift.templates import templates
 from openshift_pool.ansible import run_ansible_playbook
 from config import CONFIG_DIR, CONFIG_DATA
 
 
-class OpenshiftClusterFactory(object):
+class OpenshiftClusterBuilder(object):
     __metaclass__ = Singleton
 
     def _run_pre_install(self, cluster, version):
@@ -69,14 +69,14 @@ class OpenshiftClusterFactory(object):
         Returns:
             :return `OpenshiftCluster` cluster: The created cluster.
         """
-        stack = StackFactory().create(name, number_of_nodes)
+        stack = StackBuilder().create(name, number_of_nodes)
         cluster = OpenshiftCluster(stack)
         self.deploy(cluster, version)
         return cluster
 
     def delete(self, cluster):
         """Deleting the cluster and the stack"""
-        return StackFactory().delete(cluster.stack)
+        return StackBuilder().delete(cluster.stack)
 
 
 class OpenshiftCluster(object):

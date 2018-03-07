@@ -13,7 +13,7 @@ from openshift_pool.exceptions import (StackNotFoundException,
 from openshift_pool.openshift.management_env import ManagementEnv
 
 
-class StackFactory(object):
+class StackBuilder(object):
     __metaclass__ = Singleton
 
     @cached_property
@@ -21,17 +21,13 @@ class StackFactory(object):
         return CONFIG_DATA['openstack']
 
     @cached_property
-    def keystone_creds(self):
-        return {
-            'username': self.config_data['username'],
-            'password': self.config_data['password'],
-            'auth_url': self.config_data['auth_url'],
-            'tenant_name': self.config_data['tenant_name']
-        }
-
-    @cached_property
     def heat_client(self):
-        keystone = ksclient.Client(**self.keystone_creds)
+        keystone = ksclient.Client(
+            username=self.config_data['username'],
+            password=self.config_data['password'],
+            auth_url=self.config_data['auth_url'],
+            tenant_name=self.config_data['tenant_name']
+        )
         heat_url = keystone.service_catalog.url_for(
             service_type='orchestration', endpoint_type='publicURL')
         return Client('1', endpoint=heat_url, token=keystone.auth_token)
@@ -57,10 +53,10 @@ class StackFactory(object):
                 return
         raise NameServerUpdateException(self.name)
 
-    def create_domains(self, stack):
+    def _create_domains(self, stack):
         return self._config_domains(stack, 'create')
 
-    def delete_domains(self, stack):
+    def _delete_domains(self, stack):
         return self._config_domains(stack, 'delete')
 
     def create(self, name, number_of_nodes):
@@ -89,12 +85,12 @@ class StackFactory(object):
             '--os-region-name={region_id}',
             '{stack_name}'
         ]).format(**params).split(' '), cwd=stack.management_env.path)
-        self.create_domains(stack)
+        self._create_domains(stack)
         return stack
 
     def delete(self, stack):
         assert isinstance(stack, Stack)
-        self.delete_domains(stack)
+        self._delete_domains(stack)
         stack.stack.delete()
         stack.management_env.delete()
 
@@ -113,7 +109,7 @@ class Stack(object):
 
     @cached_property
     def heat_client(self):
-        return StackFactory().heat_client
+        return StackBuilder().heat_client
 
     @property
     def name(self):
