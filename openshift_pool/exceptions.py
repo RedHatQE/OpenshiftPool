@@ -1,4 +1,4 @@
-class StackNotFoundException(Exception):
+class StackNotFoundException(BaseException):
     def __init__(self, stack_name):
         self._stack_name = stack_name
 
@@ -6,7 +6,7 @@ class StackNotFoundException(Exception):
         return 'Could not find stack "{}"'.format(self._stack_name)
 
 
-class ManagementEnvAlreadyExists(Exception):
+class ManagementEnvAlreadyExists(BaseException):
     """Raises when trying to create new management environment and it already exists"""
     def __init__(self, path):
         self._path = path
@@ -15,7 +15,7 @@ class ManagementEnvAlreadyExists(Exception):
         return 'Management environment "{}" is already exists'.format(self._path)
 
 
-class StackAlreadyExistsException(Exception):
+class StackAlreadyExistsException(BaseException):
     """Raises when trying to create new stack and it already exists"""
     def __init__(self, stack_name):
         self._stack_name = stack_name
@@ -24,7 +24,7 @@ class StackAlreadyExistsException(Exception):
         return 'Stack "{}" is already exists'.format(self._stack_name)
 
 
-class NameServerUpdateException(Exception):
+class NameServerUpdateException(BaseException):
     def __init__(self, stack_name):
         self._stack_name = stack_name
 
@@ -32,7 +32,7 @@ class NameServerUpdateException(Exception):
         return 'Could not update name server for stack "{}"'.format(self._stack_name)
 
 
-class EnvarNotDefinedException(Exception):
+class EnvarNotDefinedException(BaseException):
     def __init__(self, envvar):
         self._envvar = envvar
 

@@ -3,6 +3,7 @@ import os
 from cached_property import cached_property
 import keystoneclient.v2_0.client as ksclient
 from heatclient.client import Client
+from wait_for import wait_for
 
 from config import CONFIG_DATA
 from openshift_pool.openshift.templates import templates
@@ -21,16 +22,19 @@ class StackBuilder(object):
         return CONFIG_DATA['openstack']
 
     @cached_property
-    def heat_client(self):
-        keystone = ksclient.Client(
+    def keystone_client(self):
+        return ksclient.Client(
             username=self.config_data['username'],
             password=self.config_data['password'],
             auth_url=self.config_data['auth_url'],
             tenant_name=self.config_data['tenant_name']
         )
-        heat_url = keystone.service_catalog.url_for(
+
+    @cached_property
+    def heat_client(self):
+        heat_url = self.keystone_client.service_catalog.url_for(
             service_type='orchestration', endpoint_type='publicURL')
-        return Client('1', endpoint=heat_url, token=keystone.auth_token)
+        return Client('1', endpoint=heat_url, token=self.keystone_client.auth_token)
 
     def _config_domains(self, stack, method, check_connection_attempts=10):
         """
@@ -66,7 +70,7 @@ class StackBuilder(object):
         params['number_of_nodes'] = number_of_nodes
         params.update(self.config_data)
 
-        stack = Stack(name, number_of_nodes)
+        stack = Stack(name)
         if stack.exists:
             raise StackAlreadyExistsException(stack.name)
 
@@ -92,6 +96,7 @@ class StackBuilder(object):
         assert isinstance(stack, Stack)
         self._delete_domains(stack)
         stack.stack.delete()
+        wait_for(lambda s: not s.exists, func_args=[stack], delay=10, timeout=120)
         stack.management_env.delete()
 
 
@@ -100,12 +105,10 @@ class Stack(object):
     Stack class contains all the required functionality to manage the stack.
     Args:
         :param:`str` name: The name of the stack
-        :param:`int` number_of_nodes: The number of nodes.
     """
 
-    def __init__(self, name, number_of_nodes):
+    def __init__(self, name):
         self._name = name
-        self._number_of_nodes = number_of_nodes
 
     @cached_property
     def heat_client(self):
@@ -114,10 +117,6 @@ class Stack(object):
     @property
     def name(self):
         return self._name
-
-    @property
-    def number_of_nodes(self):
-        return self._number_of_nodes
 
     @cached_property
     def management_env(self):
@@ -146,7 +145,7 @@ class Stack(object):
         if not self.stack:
             return False
         self.stack.get()
-        return 'DELETE' not in self._stack.stack_status
+        return 'DELETE_COMPLETE' != self._stack.stack_status.upper()
 
     @cached_property
     def stack_outputs(self):

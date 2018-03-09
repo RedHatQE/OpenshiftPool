@@ -3,6 +3,7 @@ from openshift_pool.openshift.stack import Stack, StackBuilder
 from openshift_pool.openshift.templates import templates
 from openshift_pool.ansible import run_ansible_playbook
 from config import CONFIG_DIR, CONFIG_DATA
+from openshift_pool.exceptions import StackNotFoundException
 
 
 class OpenshiftClusterBuilder(object):
@@ -43,6 +44,20 @@ class OpenshiftClusterBuilder(object):
                 ]
             )
         )
+
+    def get(self, name):
+        """Getting a cluster by name.
+        Args:
+            :param `str` name: The name of the cluster.
+        Raises:
+            ClusterNotFoundException
+        Returns:
+            :rtype `OpenshiftCluster`.
+        """
+        stack = Stack(name)
+        if not stack.exists:
+            raise StackNotFoundException(name)
+        return OpenshiftCluster(stack)
 
     def deploy(self, cluster, version):
         """Deploying Openshift on the cluster
