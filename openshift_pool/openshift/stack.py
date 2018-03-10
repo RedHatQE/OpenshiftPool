@@ -1,4 +1,6 @@
 import os
+import subprocess as sp
+import json
 
 from cached_property import cached_property
 import keystoneclient.v2_0.client as ksclient
@@ -7,7 +9,7 @@ from wait_for import wait_for
 
 from config import CONFIG_DATA
 from openshift_pool.openshift.templates import templates
-from openshift_pool.common import run_command, Singleton
+from openshift_pool.common import Singleton
 from openshift_pool.exceptions import (StackNotFoundException,
                                        NameServerUpdateException,
                                        StackAlreadyExistsException)
@@ -46,7 +48,7 @@ class StackBuilder(object):
         nsupdate_name = '{}_domains'.format(method)
         nsupdate_path = stack.management_env.file_abspath(nsupdate_name)
         stack.management_env.write_file(nsupdate_path, getattr(templates, nsupdate_name).render(**hosts_data))
-        assert run_command(['nsupdate', nsupdate_path])
+        assert not sp.run(['nsupdate', nsupdate_path]).returncode, 'nsupdate failed.'
         check_connection_attempts = 1
         while check_connection_attempts < 10:
             connection_statuses = stack.get_connection_statuses()
@@ -68,6 +70,7 @@ class StackBuilder(object):
 
         params['stack_name'] = name
         params['number_of_nodes'] = number_of_nodes
+        params.update(self.config_data['parameters'])
         params.update(self.config_data)
 
         stack = Stack(name)
@@ -75,20 +78,9 @@ class StackBuilder(object):
             raise StackAlreadyExistsException(stack.name)
 
         stack.management_env.write_file('ocp_stack.yaml', templates.ocp_stack.render(params=params))
-        stack.management_env.write_yaml('stack_params.yaml', {'parameters': self.config_data['parameters']})
-        # TODO: self.heat_client.stacks.create(stack_name=self.name, template=yaml.load())
-        run_command(' '.join([
-            'openstack', 'stack', 'create', '--wait', '-e', 'stack_params.yaml',
-            '--template ocp_stack.yaml',
-            '--os-auth-url={auth_url}',
-            '--os-project-name={project_name}',
-            '--os-tenant-name={tenant_name}',
-            '--os-username={username}',
-            '--os-password={password}',
-            '--os-tenant-id={tenant_id}',
-            '--os-region-name={region_id}',
-            '{stack_name}'
-        ]).format(**params).split(' '), cwd=stack.management_env.path)
+        template = stack.management_env.read_yaml('ocp_stack.yaml')
+        template['heat_template_version'] = template['heat_template_version'].strftime('%Y-%m-%d')
+        self.heat_client.stacks.create(stack_name=stack.name, template=json.dumps(template))
         self._create_domains(stack)
         return stack
 
@@ -185,6 +177,6 @@ class Stack(object):
         """Return a LUT that contains each node and its connectivity by the domain"""
         out = {}
         for hostname in self.hosts_data['host_names'].values():
-            out[hostname] = bool(run_command(
-                ['ping', '-c', '1', hostname]))
+            out[hostname] = not sp.run(
+                ['ping', '-c', '1', hostname]).returncode
         return out

@@ -7,68 +7,35 @@ description: >
   The template also assigns floating IP addresses to each server so they are
   routable from the public network.
 parameters:
-  key_name:
-    type: string
-    description: Name of keypair to assign to servers
-  image:
-    type: string
-    description: Name of image to use for servers
-  flavor:
-    type: string
-    description: Flavor to use for servers
-  public_net:
-    type: string
-    description: >
-      ID or name of public network for which floating IP addresses
-      will be allocated.
-  private_net_name:
-    type: string
-    description: Name of private network to be created
-  private_net_cidr:
-    type: string
-    description: Private network address (CIDR notation)
-  private_net_gateway:
-    type: string
-    description: Private network gateway address
-  private_net_pool_start:
-    type: string
-    description: Start of private network IP address allocation pool
-  private_net_pool_end:
-    type: string
-    description: End of private network IP address allocation pool
   dns:
     type: comma_delimited_list
     label: DNS nameservers
     description: |
         Comma separated list of DNS nameservers for the private network.
     default: ''
-  jenkins_build_url:
-    type: string
-    description: URL to the build which created this stack.
-    default: ""
 
 resources:
   private_net:
     type: OS::Neutron::Net
     properties:
-      name: { get_param: private_net_name }
+      name: {{ params['private_net_name'] }}
 
   private_subnet:
     type: OS::Neutron::Subnet
     properties:
       network_id: { get_resource: private_net }
-      cidr: { get_param: private_net_cidr }
-      gateway_ip: { get_param: private_net_gateway }
+      cidr: {{ params['private_net_cidr'] }}
+      gateway_ip: {{ params['private_net_gateway'] }}
       dns_nameservers: { get_param: dns }
       allocation_pools:
-        - start: { get_param: private_net_pool_start }
-          end: { get_param: private_net_pool_end }
+        - start: {{ params['private_net_pool_start'] }}
+          end: {{ params['private_net_pool_end'] }}
 
   router:
     type: OS::Neutron::Router
     properties:
       external_gateway_info:
-        network: { get_param: public_net }
+        network: {{ params['public_net'] }}
 
   router_interface:
     type: OS::Neutron::RouterInterface
@@ -84,8 +51,8 @@ resources:
           template: ocp-master.suffix%.{{ params['dns_zone'] }}
           params:
             "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
-      image: { get_param: image }
-      flavor: { get_param: flavor }
+      image: {{ params['image'] }}
+      flavor: {{ params['flavor'] }}
       key_name: secret
       networks:
         - port: { get_resource: ocp_master_port }
@@ -102,7 +69,7 @@ resources:
   ocp_master_floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
-      floating_network: { get_param: public_net }
+      floating_network: {{ params['public_net'] }}
       port_id: { get_resource: ocp_master_port }
 
 {% for n in range(params['number_of_nodes']) %}
@@ -115,8 +82,8 @@ resources:
           template: ocp-node{{ n }}.suffix%.{{ params['dns_zone'] }}
           params:
             "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
-      image: { get_param: image }
-      flavor: { get_param: flavor }
+      image: {{ params['image'] }}
+      flavor: {{ params['flavor'] }}
       key_name: secret
       networks:
         - port: { get_resource: ocp_node{{ n }}_port }
@@ -133,7 +100,7 @@ resources:
   ocp_node{{ n }}_floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
-      floating_network: { get_param: public_net }
+      floating_network: {{ params['public_net'] }}
       port_id: { get_resource: ocp_node{{ n }}_port }
 
 {% endfor %}
@@ -153,32 +120,18 @@ resources:
         #!/bin/bash
         sed -i -e 's/^Defaults\s\+requiretty/# \0/' /etc/sudoers
 
-  set_cmqe_meta_script:
-    type: OS::Heat::SoftwareConfig
-    properties:
-      group: ungrouped
-      config:
-        str_replace:
-          template: |
-            #!/bin/bash
-            echo JENKINS_BUILD_URL="$jenkins_build_url" > /cmqe_meta
-          params:
-            $jenkins_build_url: { get_param: jenkins_build_url }
-
-
   server_init:
     type: OS::Heat::MultipartMime
     properties:
       parts:
         - config: { get_resource: boot_config }
         - config: { get_resource: boot_script }
-        - config: { get_resource: set_cmqe_meta_script }
 
   ocp_deployment_pqdn:
     type: OS::Heat::RandomString
     properties:
       length: 5
-      salt: { get_param: "OS::stack_name" }
+      salt: {{ params['stack_name'] }}
       # We need to make this string dns-name compatible.
       character_classes:
         - { "min": 1, "class": lowercase }

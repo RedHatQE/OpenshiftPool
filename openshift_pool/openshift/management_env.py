@@ -60,3 +60,22 @@ class ManagementEnv(object):
             :param `dict` content: The yaml data.
         """
         return self.write_file(filename, yaml.dump(data, default_flow_style=False))
+
+    def read_file(self, filename):
+        """Returns the data of the yaml file
+        Args:
+            :param `str` filename: The file name.
+        Returns:
+            :rtype: str
+        """
+        with open(self.file_abspath(filename), 'r') as f:
+            return f.read()
+
+    def read_yaml(self, filename):
+        """Returns the data of the yaml file
+        Args:
+            :param `str` filename: The file name.
+        Returns:
+            :rtype: dict
+        """
+        return yaml.load(self.read_file(filename))

@@ -1,2 +1,3 @@
 1. creating workspace archive for deleted clusters
 2. Add option for multiple masters AND find a way to label nodes (i.e. master, infra, node, etc.), currently we differentiate among nodes only by name.
+3. use nsupdate module instead of cli

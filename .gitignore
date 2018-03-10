@@ -3,6 +3,7 @@
 *.pyc
 *.config
 .env
+.env36
 .pytest_cache
 .settings
 config/keys/*
