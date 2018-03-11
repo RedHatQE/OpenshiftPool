@@ -25,17 +25,23 @@ openshift_hosted_metrics_deploy=true
 # This template is gonna be rendered on one of the masters and the
 # ansible-playbook with the result will be started on it. We want to set
 # the ansible connection to local on such host.
-{{ master_host }} ansible_connection=local
+{{ master_nodes[0] }} ansible_connection=local
 
 [etcd]
-{{ master_host }} 
+{{ master_nodes[0] }} 
 
 [masters]
-{{ master_host }}
+{% for host in master_nodes %}
+{{ host }}
+{% endfor %}
 
 [nodes]
-{{ master_host }} openshift_hostname={{ master_host }}
-{{ infra_node }} openshift_hostname={{ infra_node }} openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
-{% for host in primary_nodes %}
+{% for host in master_nodes %}
+{{ host }} openshift_hostname={{ host }}
+{% endfor %}
+{% for host in infra_nodes %}
+{{ host }} openshift_hostname={{ host }} openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+{% endfor %}
+{% for host in compute_nodes %}
 {{ host }} openshift_hostname={{ host }} openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
 {% endfor %}

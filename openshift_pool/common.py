@@ -1,3 +1,6 @@
+from enum import Enum
+
+
 class Singleton(type):
 
     _instances = {}
@@ -25,3 +28,9 @@ class AttributeDict(dict):
                 nested_list.append(cls.attributize_dict(value))
             return nested_list
         return obj
+
+
+class NodeType(Enum):
+    MASTER = 'master'
+    INFRA = 'infra'
+    COMPUTE = 'compute'

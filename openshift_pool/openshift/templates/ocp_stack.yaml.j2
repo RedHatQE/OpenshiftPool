@@ -43,65 +43,36 @@ resources:
       router_id: { get_resource: router }
       subnet_id: { get_resource: private_subnet }
 
-  ocp_master:
+{% for name, _ in params['instances'] %}
+
+  {{ name }}:
     type: OS::Nova::Server
     properties:
       name:
         str_replace:
-          template: ocp-master.suffix%.{{ params['dns_zone'] }}
+          template: {{ name }}.suffix%.{{ params['dns_zone'] }}
           params:
             "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
       image: {{ params['image'] }}
       flavor: {{ params['flavor'] }}
       key_name: secret
       networks:
-        - port: { get_resource: ocp_master_port }
+        - port: { get_resource: {{ name }}_port }
       user_data_format: SOFTWARE_CONFIG
       user_data: { get_resource: server_init }
 
-  ocp_master_port:
+  {{ name }}_port:
     type: OS::Neutron::Port
     properties:
       network_id: { get_resource: private_net }
       fixed_ips:
         - subnet_id: { get_resource: private_subnet }
 
-  ocp_master_floating_ip:
+  {{ name }}_floating_ip:
     type: OS::Neutron::FloatingIP
     properties:
       floating_network: {{ params['public_net'] }}
-      port_id: { get_resource: ocp_master_port }
-
-{% for n in range(params['number_of_nodes']) %}
-
-  ocp_node{{ n }}:
-    type: OS::Nova::Server
-    properties:
-      name:
-        str_replace:
-          template: ocp-node{{ n }}.suffix%.{{ params['dns_zone'] }}
-          params:
-            "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
-      image: {{ params['image'] }}
-      flavor: {{ params['flavor'] }}
-      key_name: secret
-      networks:
-        - port: { get_resource: ocp_node{{ n }}_port }
-      user_data_format: SOFTWARE_CONFIG
-      user_data: { get_resource: server_init }
-
-  ocp_node{{ n }}_port:
-    type: OS::Neutron::Port
-    properties:
-      network_id: { get_resource: private_net }
-      fixed_ips:
-        - subnet_id: { get_resource: private_subnet }
-
-  ocp_node{{ n }}_floating_ip:
-    type: OS::Neutron::FloatingIP
-    properties:
-      floating_network: {{ params['public_net'] }}
-      port_id: { get_resource: ocp_node{{ n }}_port }
+      port_id: { get_resource: {{ name }}_port }
 
 {% endfor %}
 
@@ -141,24 +112,18 @@ outputs:
   ocp_deployment_pqdn:
     description: The suffix of the instances names
     value: { get_attr: [ ocp_deployment_pqdn, value ] }
-  ocp_master_private_ip:
-    description: IP address of ocp_master in private network
-    value: { get_attr: [ ocp_master, first_address ] }
-  ocp_master_public_ip:
-    description: Floating IP address of ocp_master in public network
-    value: { get_attr: [ ocp_master_floating_ip, floating_ip_address ] }
-  ocp_master_name:
-    description: Instance name of the openshift master node.
-    value: { get_attr: [ ocp_master, name ] }
-{% for n in range(params['number_of_nodes']) %}
-  ocp_node{{ n }}_private_ip:
-    description: IP address of ocp_node{{ n }} in private network
-    value: { get_attr: [ ocp_node{{ n }}, first_address ] }
-  ocp_node{{ n }}_public_ip:
-    description: Floating IP address of ocp_node{{ n }} in public network
-    value: { get_attr: [ ocp_node{{ n }}_floating_ip, floating_ip_address ] }
-  ocp_node{{ n }}_name:
-    description: Instance name of the openshift node{{ n }}.
-    value: { get_attr: [ ocp_node{{ n }}, name ] }
+{% for name, type in params['instances'] %}
+  {{ name }}_private_ip:
+    description: IP address of {{ name }} in private network
+    value: { get_attr: [ {{ name }}, first_address ] }
+  {{ name }}_public_ip:
+    description: Floating IP address of {{ name }} in public network
+    value: { get_attr: [ {{ name }}_floating_ip, floating_ip_address ] }
+  {{ name }}_name:
+    description: Instance name of the openshift node.
+    value: { get_attr: [ {{ name }}, name ] }
+  {{ name }}_instance_type:
+    description: The type of the stack instance
+    value: {{ type }}
 {% endfor %}
     

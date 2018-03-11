@@ -1,13 +1,17 @@
-from openshift_pool.common import Singleton
-from openshift_pool.openshift.stack import Stack, StackBuilder
+from cached_property import cached_property
+
+from openshift_pool.common import Singleton, NodeType
+from openshift_pool.openshift.stack import Stack, StackBuilder, StackInstance
 from openshift_pool.openshift.templates import templates
 from openshift_pool.ansible import run_ansible_playbook
 from config import CONFIG_DIR, CONFIG_DATA
-from openshift_pool.exceptions import StackNotFoundException
+from openshift_pool.exceptions import StackNotFoundException, CannotDetectNodeTypeException
 
 
 class OpenshiftClusterBuilder(object):
     __metaclass__ = Singleton
+    NODE_NAME_BASE_PATTERN = 'ocp-{node_type}'
+    NODE_NAME_INDEX_PATTERN = '-{n}'
 
     def _run_pre_install(self, cluster, version):
         cluster.management_env.write_file(
@@ -30,18 +34,17 @@ class OpenshiftClusterBuilder(object):
             'install_inventory',
             # TODO: find a better way to label master
             templates.install_inventory.render(
-                master_fqdn=cluster.stack.hosts_data['host_names']['ocp_master'])
+                deployer_host_fqdn=[node.fqdn for node in cluster.nodes if node.type == NodeType.MASTER].pop())
         )
         return run_ansible_playbook(
             'install', cluster.management_env.file_abspath('install_inventory'),
             extra_vars=dict(
+                ocp_version=version,
                 logs_directory=cluster.management_env.path,
                 openshift_master_default_subdomain='apps.{}'.format(cluster.stack.hosts_data['ocp_servers_domain']),
-                ocp_version=version, master_host=cluster.stack.hosts_data['host_names']['ocp_master'],
-                infra_node=cluster.stack.hosts_data['host_names']['ocp_node0'],
-                primary_nodes=[
-                    v for k, v in cluster.stack.hosts_data['host_names'].items() if k not in ('ocp_master', 'ocp_node0')
-                ]
+                master_nodes=[node.fqdn for node in cluster.nodes if node.type == NodeType.MASTER],
+                infra_nodes=[node.fqdn for node in cluster.nodes if node.type == NodeType.INFRA],
+                compute_nodes=[node.fqdn for node in cluster.nodes if node.type == NodeType.COMPUTE]
             )
         )
 
@@ -57,7 +60,7 @@ class OpenshiftClusterBuilder(object):
         stack = Stack(name)
         if not stack.exists:
             raise StackNotFoundException(name)
-        return OpenshiftCluster(stack)
+        return OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
 
     def deploy(self, cluster, version):
         """Deploying Openshift on the cluster
@@ -75,17 +78,52 @@ class OpenshiftClusterBuilder(object):
             'install', result)
         return cluster
 
-    def create(self, name, number_of_nodes, version):
+    def _gen_node_names(self, node_types):
+        names = []
+        for node_type in node_types:
+            base_name = self.NODE_NAME_BASE_PATTERN.format(node_type=node_type.value)
+            full_pattern = base_name + self.NODE_NAME_INDEX_PATTERN
+            i = 0
+            while full_pattern.format(n=i) in names:
+                i += 1
+            names.append(full_pattern.format(n=i))
+        return names
+
+    def _fetch_nodes_from_stack_instances(self, stack):
+        nodes = []
+        outputs = stack.stack_outputs
+        for instance in stack.instances:
+            instance_type = next(filter(bool, [
+                output.get('output_value')
+                for output in outputs
+                if output['output_key'] == '{}_instance_type'.format(instance.fqdn.split('.')[0])
+            ]))
+            node = None
+            for node_type in NodeType:
+                if instance_type == node_type.value:
+                    node = Node(node_type, instance)
+                    break
+            if not node:
+                raise CannotDetectNodeTypeException(instance.fqdn)
+            nodes.append(node)
+        return nodes
+
+    def create(self, name, node_types, version):
         """Creating a new openshift cluster. Creating the stack and deploy Openshift.
         Args:
             :param `str` name: The name of the cluster.
-            :param `int` number_of_nodes: Number of nodes of the cluster.
+            :param `list`: List of the node types in the cluster.
+                           e.g. [NodeType.MASTER, NodeType.INFRA, NodeType.COMPUTE, NodeType.COMPUTE]
             :param `str` version: The Openshift version to deploy.
         Returns:
             :return `OpenshiftCluster` cluster: The created cluster.
         """
-        stack = StackBuilder().create(name, number_of_nodes)
-        cluster = OpenshiftCluster(stack)
+        assert isinstance(name, str)
+        assert NodeType.MASTER in node_types, 'Cluster must include at least 1 master'
+        assert any(filter(lambda t: t in node_types, [NodeType.INFRA, NodeType.COMPUTE])), \
+            'Cluster must include at least 1 additional node except master'
+        stack = StackBuilder().create(name, self._gen_node_names(node_types), node_types)
+        cluster = OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
         self.deploy(cluster, version)
         return cluster
 
@@ -94,11 +132,41 @@ class OpenshiftClusterBuilder(object):
         return StackBuilder().delete(cluster.stack)
 
 
+class Node(object):
+    def __init__(self, node_type, stack_instance):
+        assert isinstance(node_type, NodeType)
+        assert isinstance(stack_instance, StackInstance)
+        self._type = node_type
+        self._stack_instance = stack_instance
+
+    @property
+    def fqdn(self):
+        return self.stack_instance.fqdn
+
+    @property
+    def type(self):
+        return self._type
+
+    @property
+    def stack_instance(self):
+        return self._stack_instance
+
+
 class OpenshiftCluster(object):
 
-    def __init__(self, stack):
+    def __init__(self, stack, nodes):
         assert isinstance(stack, Stack)
-        self.stack = stack
+        assert all(isinstance(node, Node) for node in nodes)
+        self._stack = stack
+        self._nodes = nodes
+
+    @cached_property
+    def stack(self):
+        return self._stack
+
+    @cached_property
+    def nodes(self):
+        return self._nodes
 
     @property
     def exists(self):

@@ -9,7 +9,7 @@ from wait_for import wait_for
 
 from config import CONFIG_DATA
 from openshift_pool.openshift.templates import templates
-from openshift_pool.common import Singleton
+from openshift_pool.common import Singleton, NodeType
 from openshift_pool.exceptions import (StackNotFoundException,
                                        NameServerUpdateException,
                                        StackAlreadyExistsException)
@@ -41,14 +41,22 @@ class StackBuilder(object):
     def _config_domains(self, stack, method, check_connection_attempts=10):
         """
         Either create or delete domains for the stack.
+            :param:'Stack' stack: The stack
             :param:'str' method: either 'create' or 'delete'
         """
         assert method in ('create', 'delete')
         hosts_data = stack.hosts_data
+        infra_hosts = [hosts_data['host_ips'][name] for name in hosts_data['host_ips'].keys()
+                       if hosts_data['instance_types'][name] == NodeType.INFRA.value]
+        if not infra_hosts:
+            infra_hosts = [hosts_data['host_ips'][name] for name in hosts_data['host_ips'].keys()
+                           if hosts_data['instance_types'][name] == NodeType.MASTER.value]
+        hosts_data['apps_subdomain_ip'] = infra_hosts.pop()
         nsupdate_name = '{}_domains'.format(method)
         nsupdate_path = stack.management_env.file_abspath(nsupdate_name)
         stack.management_env.write_file(nsupdate_path, getattr(templates, nsupdate_name).render(**hosts_data))
-        assert not sp.run(['nsupdate', nsupdate_path]).returncode, 'nsupdate failed.'
+        nsupdate_results = sp.run(['nsupdate', nsupdate_path])
+        assert not nsupdate_results.returncode, 'nsupdate failed: {}'.format(nsupdate_results.stdout)
         check_connection_attempts = 1
         while check_connection_attempts < 10:
             connection_statuses = stack.get_connection_statuses()
@@ -65,11 +73,15 @@ class StackBuilder(object):
     def _delete_domains(self, stack):
         return self._config_domains(stack, 'delete')
 
-    def create(self, name, number_of_nodes):
+    def create(self, name, instance_names, instance_types):
+        assert isinstance(name, str)
+        assert len(instance_names) == len(instance_types)
+        assert NodeType.MASTER in instance_types, 'Stack must include master instance'
+
         params = {}
 
         params['stack_name'] = name
-        params['number_of_nodes'] = number_of_nodes
+        params['instances'] = list(zip(instance_names, [t.value for t in instance_types]))
         params.update(self.config_data['parameters'])
         params.update(self.config_data)
 
@@ -81,6 +93,7 @@ class StackBuilder(object):
         template = stack.management_env.read_yaml('ocp_stack.yaml')
         template['heat_template_version'] = template['heat_template_version'].strftime('%Y-%m-%d')
         self.heat_client.stacks.create(stack_name=stack.name, template=json.dumps(template))
+        wait_for(lambda s: s.exists, [stack], delay=10, timeout=300)
         self._create_domains(stack)
         return stack
 
@@ -88,8 +101,14 @@ class StackBuilder(object):
         assert isinstance(stack, Stack)
         self._delete_domains(stack)
         stack.stack.delete()
-        wait_for(lambda s: not s.exists, func_args=[stack], delay=10, timeout=120)
+        wait_for(lambda s: s.exists is False, func_args=[stack], delay=10, timeout=120)
         stack.management_env.delete()
+
+
+class StackInstance(object):
+
+    def __init__(self, fqdn):
+        self.fqdn = fqdn
 
 
 class Stack(object):
@@ -101,14 +120,23 @@ class Stack(object):
 
     def __init__(self, name):
         self._name = name
+        self._stack = None
 
     @cached_property
     def heat_client(self):
         return StackBuilder().heat_client
 
-    @property
+    @cached_property
     def name(self):
         return self._name
+
+    @cached_property
+    def instances(self):
+        return [StackInstance(fqdn) for fqdn in self.hosts_data['host_names']]
+
+    @cached_property
+    def number_of_instances(self):
+        return len(self._instances)
 
     @cached_property
     def management_env(self):
@@ -124,22 +152,21 @@ class Stack(object):
 
     @property
     def stack(self):
-        if hasattr(self, '_stack'):
-            return self._stack
-        the_stack = next((s for s in self.heat_client.stacks.list()
-                          if s.stack_name == self.name), None)
-        if the_stack:
-            self._stack = the_stack
-        return the_stack
+        if not self._stack:
+            self._stack = next((s for s in self.heat_client.stacks.list()
+                                if s.stack_name == self.name), None)
+        return self._stack
 
     @property
     def exists(self):
+        """Whether the stack exists or not"""
         if not self.stack:
             return False
         self.stack.get()
-        return 'DELETE_COMPLETE' != self._stack.stack_status.upper()
+        status = self._stack.stack_status.upper()
+        return 'CREATE_COMPLETE' == status or False
 
-    @cached_property
+    @property
     def stack_outputs(self):
         if not self.exists:
             raise StackNotFoundException(self.name)
@@ -147,7 +174,7 @@ class Stack(object):
         self.stack.get()  # We won't get the outputs if we won't do not do this.
         return self.stack.outputs
 
-    @cached_property
+    @property
     def hosts_data(self):
         outputs = self.stack_outputs
 
@@ -166,11 +193,17 @@ class Stack(object):
         ocp_servers_domain = "{}.{}".format(
             ocp_deployment_pqdn, CONFIG_DATA['openstack']['dns_zone'])
 
+        instance_types = {
+            o["output_key"].split("_instance_type")[0]: o["output_value"]
+            for o in outputs if o["output_key"].endswith("_instance_type")
+        }
+
         return {
             'host_ips': host_ips,
             'host_names': host_names,
             'ocp_deployment_pqdn': ocp_deployment_pqdn,
-            'ocp_servers_domain': ocp_servers_domain
+            'ocp_servers_domain': ocp_servers_domain,
+            'instance_types': instance_types
         }
 
     def get_connection_statuses(self):

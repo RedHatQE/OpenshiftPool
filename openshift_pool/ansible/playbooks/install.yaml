@@ -1,5 +1,5 @@
 ---
-- hosts: masters
+- hosts: deployer_host
   roles:
     - role: "install"
       become: true

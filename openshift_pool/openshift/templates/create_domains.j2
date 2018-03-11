@@ -3,5 +3,5 @@ update delete {{ host_names[i] }}
 update add {{ host_names[i] }} 60 A {{ host_ips[i] }}
 {% endfor %}
 
-update add *.apps.{{ ocp_servers_domain }} 60 A {{ host_ips['ocp_node0'] }}
+update add *.apps.{{ ocp_servers_domain }} 60 A {{ apps_subdomain_ip }}
 send
