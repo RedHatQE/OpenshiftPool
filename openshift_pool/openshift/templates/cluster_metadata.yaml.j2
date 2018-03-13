@@ -1,0 +1,10 @@
+---
+resource_type: OpenshiftCluster
+name: {{ name }}
+created_at: {{ created_at }}
+nodes:
+{% for node in nodes -%}
+  - fqdn: {{ node.fqdn }}
+    type: {{ node.type }}
+    flavor: {{ node.stack_instance.flavor }}
+{% endfor %}

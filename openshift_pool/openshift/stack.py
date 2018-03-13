@@ -1,6 +1,7 @@
 import os
 import subprocess as sp
 import json
+import paramiko
 
 from cached_property import cached_property
 import keystoneclient.v2_0.client as ksclient
@@ -41,9 +42,10 @@ class StackBuilder(object):
     def _config_domains(self, stack, method, check_connection_attempts=10):
         """
         Either create or delete domains for the stack.
-            :param:'Stack' stack: The stack
-            :param:'str' method: either 'create' or 'delete'
+            @param stack: ('Stack') The stack
+            @param method: ('str') either 'create' or 'delete'
         """
+        assert isinstance(stack, Stack)
         assert method in ('create', 'delete')
         hosts_data = stack.hosts_data
         infra_hosts = [hosts_data['host_ips'][name] for name in hosts_data['host_ips'].keys()
@@ -53,25 +55,30 @@ class StackBuilder(object):
                            if hosts_data['instance_types'][name] == NodeType.MASTER.value]
         hosts_data['apps_subdomain_ip'] = infra_hosts.pop()
         nsupdate_name = '{}_domains'.format(method)
-        nsupdate_path = stack.management_env.file_abspath(nsupdate_name)
-        stack.management_env.write_file(nsupdate_path, getattr(templates, nsupdate_name).render(**hosts_data))
+        nsupdate_path = stack.mgmt_env.file_abspath(nsupdate_name)
+        stack.mgmt_env.write_file(nsupdate_path, getattr(templates, nsupdate_name).render(**hosts_data))
         nsupdate_results = sp.run(['nsupdate', nsupdate_path])
         assert not nsupdate_results.returncode, 'nsupdate failed: {}'.format(nsupdate_results.stdout)
-        check_connection_attempts = 1
-        while check_connection_attempts < 10:
+        connection_attempts = 1
+        while connection_attempts < check_connection_attempts:
             connection_statuses = stack.get_connection_statuses()
             if (
                 method == 'create' and all(connection_statuses.values()) or
                 method == 'delete' and not any(connection_statuses.values())
                     ):
                 return
-        raise NameServerUpdateException(self.name)
+            connection_attempts += 1
+        raise NameServerUpdateException(stack.name)
 
     def _create_domains(self, stack):
         return self._config_domains(stack, 'create')
 
     def _delete_domains(self, stack):
         return self._config_domains(stack, 'delete')
+
+    def is_stack(self, name):
+        """Return whether the stack with the given name exists"""
+        return Stack(name).create_complete
 
     def create(self, name, instance_names, instance_types):
         assert isinstance(name, str)
@@ -86,14 +93,14 @@ class StackBuilder(object):
         params.update(self.config_data)
 
         stack = Stack(name)
-        if stack.exists:
+        if stack.create_complete:
             raise StackAlreadyExistsException(stack.name)
 
-        stack.management_env.write_file('ocp_stack.yaml', templates.ocp_stack.render(params=params))
-        template = stack.management_env.read_yaml('ocp_stack.yaml')
+        stack.mgmt_env.write_file('ocp_stack.yaml', templates.ocp_stack.render(params=params))
+        template = stack.mgmt_env.read_yaml('ocp_stack.yaml')
         template['heat_template_version'] = template['heat_template_version'].strftime('%Y-%m-%d')
         self.heat_client.stacks.create(stack_name=stack.name, template=json.dumps(template))
-        wait_for(lambda s: s.exists, [stack], delay=10, timeout=300)
+        wait_for(lambda s: s.create_complete, [stack], delay=10, timeout=300)
         self._create_domains(stack)
         return stack
 
@@ -101,8 +108,8 @@ class StackBuilder(object):
         assert isinstance(stack, Stack)
         self._delete_domains(stack)
         stack.stack.delete()
-        wait_for(lambda s: s.exists is False, func_args=[stack], delay=10, timeout=120)
-        stack.management_env.delete()
+        wait_for(lambda s: s.delete_complete, func_args=[stack], delay=10, timeout=120)
+        stack.mgmt_env.delete()
 
 
 class StackInstance(object):
@@ -110,12 +117,18 @@ class StackInstance(object):
     def __init__(self, fqdn):
         self.fqdn = fqdn
 
+    @cached_property
+    def ssh(self):
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(self.fqdn, username='root')
+        return client
+
 
 class Stack(object):
     """
     Stack class contains all the required functionality to manage the stack.
-    Args:
-        :param:`str` name: The name of the stack
+        @param name: (`str`) The name of the stack
     """
 
     def __init__(self, name):
@@ -132,14 +145,14 @@ class Stack(object):
 
     @cached_property
     def instances(self):
-        return [StackInstance(fqdn) for fqdn in self.hosts_data['host_names']]
+        return [StackInstance(fqdn) for fqdn in self.hosts_data['host_names'].values()]
 
     @cached_property
     def number_of_instances(self):
         return len(self._instances)
 
     @cached_property
-    def management_env(self):
+    def mgmt_env(self):
         """Return the management env of the stack"""
         management_env = ManagementEnv(self.name)
         if not os.path.isdir(management_env.path):
@@ -158,17 +171,23 @@ class Stack(object):
         return self._stack
 
     @property
-    def exists(self):
-        """Whether the stack exists or not"""
+    def status(self):
         if not self.stack:
-            return False
+            return
         self.stack.get()
-        status = self._stack.stack_status.upper()
-        return 'CREATE_COMPLETE' == status or False
+        return self._stack.stack_status.upper()
+
+    @property
+    def create_complete(self):
+        return 'CREATE_COMPLETE' == self.status or False
+
+    @property
+    def delete_complete(self):
+        return 'DELETE_COMPLETE' == self.status or False
 
     @property
     def stack_outputs(self):
-        if not self.exists:
+        if not self.create_complete:
             raise StackNotFoundException(self.name)
 
         self.stack.get()  # We won't get the outputs if we won't do not do this.

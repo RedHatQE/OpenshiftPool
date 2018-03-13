@@ -1,25 +1,34 @@
+import os
+import re
+from datetime import datetime
+
 from cached_property import cached_property
 
+from config import CONFIG_DIR, CONFIG_DATA
 from openshift_pool.common import Singleton, NodeType
 from openshift_pool.openshift.stack import Stack, StackBuilder, StackInstance
 from openshift_pool.openshift.templates import templates
-from openshift_pool.ansible import run_ansible_playbook
-from config import CONFIG_DIR, CONFIG_DATA
+from openshift_pool.ansibles import run_ansible_playbook
 from openshift_pool.exceptions import StackNotFoundException, CannotDetectNodeTypeException
+from openshift_pool.openshift.management_env import PickleShelf
 
 
-class OpenshiftClusterBuilder(object):
-    __metaclass__ = Singleton
+class OpenshiftClusterBuilder(metaclass=Singleton):
     NODE_NAME_BASE_PATTERN = 'ocp-{node_type}'
     NODE_NAME_INDEX_PATTERN = '-{n}'
+    SUPPORTED_VERSIONS = ['3.5', '3.6', '3.7', '3.9']
 
     def _run_pre_install(self, cluster, version):
-        cluster.management_env.write_file(
+        """Running the pre-installation ansible tasks.
+            @param cluster: `OpenshiftCluster`
+            @param version: `str` the openshift version for the pre-installation.
+        """
+        cluster.mgmt_env.write_file(
             'pre_install_inventory',
             templates.pre_install_inventory.render(**cluster.stack.hosts_data)
         )
         return run_ansible_playbook(
-            'pre_install', cluster.management_env.file_abspath('pre_install_inventory'), extra_vars=dict(
+            'pre_install', cluster.mgmt_env.file_abspath('pre_install_inventory'), extra_vars=dict(
                 subscription_username=CONFIG_DATA['subscription_manager']['username'],
                 subscription_password=CONFIG_DATA['subscription_manager']['password'],
                 pool_id=CONFIG_DATA['subscription_manager']['pool'],
@@ -30,17 +39,20 @@ class OpenshiftClusterBuilder(object):
         )
 
     def _run_install(self, cluster, version):
-        cluster.management_env.write_file(
+        """Running the installation ansible tasks.
+            @param cluster: `OpenshiftCluster`
+            @param version: `str` the openshift version for the installation.
+        """
+        cluster.mgmt_env.write_file(
             'install_inventory',
-            # TODO: find a better way to label master
             templates.install_inventory.render(
                 deployer_host_fqdn=[node.fqdn for node in cluster.nodes if node.type == NodeType.MASTER].pop())
         )
         return run_ansible_playbook(
-            'install', cluster.management_env.file_abspath('install_inventory'),
+            'install', cluster.mgmt_env.file_abspath('install_inventory'),
             extra_vars=dict(
                 ocp_version=version,
-                logs_directory=cluster.management_env.path,
+                logs_directory=cluster.mgmt_env.path,
                 openshift_master_default_subdomain='apps.{}'.format(cluster.stack.hosts_data['ocp_servers_domain']),
                 master_nodes=[node.fqdn for node in cluster.nodes if node.type == NodeType.MASTER],
                 infra_nodes=[node.fqdn for node in cluster.nodes if node.type == NodeType.INFRA],
@@ -48,37 +60,11 @@ class OpenshiftClusterBuilder(object):
             )
         )
 
-    def get(self, name):
-        """Getting a cluster by name.
-        Args:
-            :param `str` name: The name of the cluster.
-        Raises:
-            ClusterNotFoundException
-        Returns:
-            :rtype `OpenshiftCluster`.
-        """
-        stack = Stack(name)
-        if not stack.exists:
-            raise StackNotFoundException(name)
-        return OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
-
-    def deploy(self, cluster, version):
-        """Deploying Openshift on the cluster
-        Args:
-            :param `OpenshiftCluster` cluster: The Openshift cluster to deploy.
-            :param `str` version: The Openshift version to deploy.
-        Returns:
-            :return `OpenshiftCluster` cluster: The cluster
-        """
-        result = self._run_pre_install(cluster, version)
-        assert result == 0, 'Ansible playbook "{}" returned with status code: {}'.format(
-            'pre_install', result)  # TODO: better exception
-        result = self._run_install(cluster, version)
-        assert result == 0, 'Ansible playbook "{}" returned with status code: {}'.format(
-            'install', result)
-        return cluster
-
     def _gen_node_names(self, node_types):
+        """Generate node names from node types.
+            @param node_types: (`list`) of `NodeType` the node types
+            @rtype: (`list` of `str`)
+        """
         names = []
         for node_type in node_types:
             base_name = self.NODE_NAME_BASE_PATTERN.format(node_type=node_type.value)
@@ -90,6 +76,10 @@ class OpenshiftClusterBuilder(object):
         return names
 
     def _fetch_nodes_from_stack_instances(self, stack):
+        """Fetching the nodes from the stack outputs.
+            @param stack: (`Stack`) the stack to fetch from.
+            @rtype: (`list' of `Node`)
+        """
         nodes = []
         outputs = stack.stack_outputs
         for instance in stack.instances:
@@ -108,15 +98,51 @@ class OpenshiftClusterBuilder(object):
             nodes.append(node)
         return nodes
 
+    def _create_metadata(self, cluster):
+        """Building the metadata for the new created cluster.
+            @param cluster: `OpenshiftCluster`
+        """
+        cluster.metadata['resource_type'] = 'OpenshiftCluster'
+        cluster.metadata['name'] = cluster.name
+        cluster.metadata['created_at'] = datetime.now()
+        cluster.metadata['owner'] = None
+        # cluster.metadata['version'] = cluster.version
+        # cluster.metadata['xy_version'] = cluster.xy_version
+        cluster.metadata['flavor'] = CONFIG_DATA['openstack']['parameters']['flavor']
+        cluster.metadata.save()
+
+    def get(self, name):
+        """Getting a cluster by name.
+            @param name: (`str`) The name of the cluster.
+            @raise ClusterNotFoundException: When the cluster not found.
+            @rtype: `OpenshiftCluster`.
+        """
+        stack = Stack(name)
+        if not stack.create_complete:
+            raise StackNotFoundException(name)
+        return OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
+
+    def deploy(self, cluster, version):
+        """Deploying Openshift on the cluster
+            @param cluster: (`OpenshiftCluster`) The Openshift cluster to deploy.
+            @param version: (`str`) The Openshift version to deploy.
+            @rtype: `OpenshiftCluster`
+        """
+        result = self._run_pre_install(cluster, version)
+        assert result == 0, 'Ansible playbook "{}" returned with status code: {}'.format(
+            'pre_install', result)  # TODO: better exception
+        result = self._run_install(cluster, version)
+        assert result == 0, 'Ansible playbook "{}" returned with status code: {}'.format(
+            'install', result)
+        return cluster
+
     def create(self, name, node_types, version):
         """Creating a new openshift cluster. Creating the stack and deploy Openshift.
-        Args:
-            :param `str` name: The name of the cluster.
-            :param `list`: List of the node types in the cluster.
+            @param name: (`str`) The name of the cluster.
+            @param node_types: (`list` of `NodeType`)  List of the node types in the cluster.
                            e.g. [NodeType.MASTER, NodeType.INFRA, NodeType.COMPUTE, NodeType.COMPUTE]
-            :param `str` version: The Openshift version to deploy.
-        Returns:
-            :return `OpenshiftCluster` cluster: The created cluster.
+            @param version: (`str`) The Openshift version to deploy.
+            @rtype: `OpenshiftCluster`.
         """
         assert isinstance(name, str)
         assert NodeType.MASTER in node_types, 'Cluster must include at least 1 master'
@@ -124,15 +150,20 @@ class OpenshiftClusterBuilder(object):
             'Cluster must include at least 1 additional node except master'
         stack = StackBuilder().create(name, self._gen_node_names(node_types), node_types)
         cluster = OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
+        self._create_metadata(cluster)
         self.deploy(cluster, version)
         return cluster
 
     def delete(self, cluster):
-        """Deleting the cluster and the stack"""
+        """Deleting the cluster and the stack
+            @param cluster: (`OpenshiftCluster`)
+            @rtype: `Stack`
+        """
         return StackBuilder().delete(cluster.stack)
 
 
 class Node(object):
+
     def __init__(self, node_type, stack_instance):
         assert isinstance(node_type, NodeType)
         assert isinstance(stack_instance, StackInstance)
@@ -140,8 +171,12 @@ class Node(object):
         self._stack_instance = stack_instance
 
     @property
+    def ssh(self):
+        return self._stack_instance.ssh
+
+    @property
     def fqdn(self):
-        return self.stack_instance.fqdn
+        return self._stack_instance.fqdn
 
     @property
     def type(self):
@@ -160,21 +195,54 @@ class OpenshiftCluster(object):
         self._stack = stack
         self._nodes = nodes
 
+    def __repr__(self):
+        return '<{} name="{}"; node_types="{}">'.format(
+            self.__class__.__name__, self.name, [t.type.value for t in self.nodes])
+
+    @property
+    def name(self):
+        return self.stack.name
+
+    @property
+    def master_nodes(self):
+        return [node for node in self.nodes if node.type == NodeType.MASTER]
+
+    @property
+    def version(self):
+        raw_ver = str(self.master_nodes[0].ssh.exec_command('oc version')[1].read())
+        return re.search(r'oc v([\d\.]+)', raw_ver).group(1)
+
+    @property
+    def xy_version(self):
+        return '.'.join(self.version.split('.')[:2])
+
     @cached_property
+    def metadata(self):
+        return PickleShelf(os.path.join(self.mgmt_env.path, '.metadata'))
+
+    @property
     def stack(self):
         return self._stack
 
-    @cached_property
+    @property
     def nodes(self):
         return self._nodes
 
     @property
-    def exists(self):
-        return self.stack.exists
+    def create_complete(self):
+        return self.stack.create_complete
 
     @property
-    def management_env(self):
-        return self.stack.management_env
+    def delete_complete(self):
+        return self.stack.delete_complete
+
+    @property
+    def exists(self):
+        return self.stack.create_complete
+
+    @property
+    def mgmt_env(self):
+        return self.stack.mgmt_env
 
     def status(self):
         pass  # TODO: implement status checking of the cluster (stack exists, connections, ocp running, etc.)

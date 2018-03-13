@@ -10,7 +10,7 @@ deployment_type=openshift-enterprise
 openshift_disable_check=disk_availability,docker_storage,memory_availability,docker_image_availability,package_version
 
 osm_use_cockpit=true
-
+openshift_hostname_check=false
 openshift_set_hostname=true
 openshift_master_default_subdomain={{ openshift_master_default_subdomain }}
 openshift_metrics_hawkular_hostname=hawkular-metrics.{{ openshift_master_default_subdomain }}

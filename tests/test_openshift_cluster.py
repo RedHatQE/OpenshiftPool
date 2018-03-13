@@ -22,13 +22,13 @@ def test_bad_node_types(node_types):
         OpenshiftClusterBuilder().create('foo', node_types, '3.7')
 
 
-@pytest.mark.parametrize('version', ['3.7'])
+@pytest.mark.parametrize('version', ['3.5', '3.6', '3.7'])
 def test_openshift_cluster_factory(version):
     cluster_name = 'ocp-cluster-{}-test'.format(version)
     try:
         cluster = OpenshiftClusterBuilder().get(cluster_name)
         OpenshiftClusterBuilder().delete(cluster)
-        assert not cluster.exists
+        assert cluster.delete_complete
     except StackNotFoundException:
         pass
     cluster = OpenshiftClusterBuilder().create(
@@ -37,5 +37,6 @@ def test_openshift_cluster_factory(version):
         version
     )
     assert cluster.exists
+    assert cluster.xy_version == version
     OpenshiftClusterBuilder().delete(cluster)
     assert not cluster.exists

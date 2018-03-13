@@ -2,9 +2,37 @@ import os
 import shutil
 
 import yaml
+import pickle
 
 from openshift_pool.env import ENV
 from openshift_pool.exceptions import ManagementEnvAlreadyExists
+
+
+class PickleShelf(dict):
+    """
+    A basic pickle shelf to store objects and metadata.
+        @param path: `str` The pth of the pickle file.
+    """
+    def __init__(self, path):
+        self._path = path
+        if os.path.exists(self._path):
+            self.reload()
+        else:
+            self.save()
+        dict.__init__(self)
+
+    @property
+    def path(self):
+        return self._path
+
+    def reload(self):
+        with open(self._path, 'rb') as f:
+            obj = pickle.load(f)
+        self.update(obj)
+
+    def save(self):
+        with open(self._path, 'wb') as f:
+            pickle.dump(self, f)
 
 
 class ManagementEnv(object):
@@ -16,6 +44,12 @@ class ManagementEnv(object):
     def __init__(self, dirname):
         self._dirname = dirname
 
+    def __repr__(self):
+        return '<{} {}>'.format(self.__class__.__name__, self._dirname)
+
+    def __eq__(self, other):
+        return getattr(other, 'path', None) == self.path
+
     @property
     def path(self):
         """Return the absolute path of the management env directory"""
@@ -23,8 +57,7 @@ class ManagementEnv(object):
 
     def create(self):
         """Creating the management env directory.
-        Raises:
-            :ManagementEnvAlreadyExists: If the folder already exists.
+            @raise ManagementEnvAlreadyExists: If the folder already exists.
         """
         if os.path.isdir(self.path):
             raise ManagementEnvAlreadyExists(self.path)
@@ -46,36 +79,30 @@ class ManagementEnv(object):
 
     def write_file(self, filename, content):
         """Writing the content to the file in the management env directory.
-        Args:
-            :param `str` filename: The file name.
-            :param `str` content: The file content.
+            @param filename: `str` The file name.
+            @param content: `str` The file content.
         """
         with open(self.file_abspath(filename), 'w') as f:
             f.write(content)
 
     def write_yaml(self, filename, data):
         """Writing a yaml file with data in the management env directory.
-        Args:
-            :param `str` filename: The file name.
-            :param `dict` content: The yaml data.
+            @param filename: `str` The file name.
+            @param content: `dict` The yaml data.
         """
         return self.write_file(filename, yaml.dump(data, default_flow_style=False))
 
     def read_file(self, filename):
         """Returns the data of the yaml file
-        Args:
-            :param `str` filename: The file name.
-        Returns:
-            :rtype: str
+            @param filename: `str` The file name.
+            @rtype: str
         """
         with open(self.file_abspath(filename), 'r') as f:
             return f.read()
 
     def read_yaml(self, filename):
         """Returns the data of the yaml file
-        Args:
-            :param `str` filename: The file name.
-        Returns:
-            :rtype: dict
+            @param filename: `str` The file name.
+            @rtype: dict
         """
         return yaml.load(self.read_file(filename))
