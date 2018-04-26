@@ -22,7 +22,7 @@ def test_bad_node_types(node_types):
         OpenshiftClusterBuilder().create('foo', node_types, '3.7')
 
 
-@pytest.mark.parametrize('version', ['3.5', '3.6', '3.7'])
+@pytest.mark.parametrize('version', ['3.9'])
 def test_openshift_cluster_factory(version):
     cluster_name = 'ocp-cluster-{}-test'.format(version)
     try:
@@ -33,7 +33,7 @@ def test_openshift_cluster_factory(version):
         pass
     cluster = OpenshiftClusterBuilder().create(
         cluster_name,
-        [NodeType.MASTER, NodeType.INFRA, NodeType.COMPUTE, NodeType.COMPUTE],
+        [NodeType.MASTER, NodeType.INFRA, NodeType.COMPUTE, NodeType.COMPUTE, NodeType.COMPUTE],
         version
     )
     assert cluster.exists

@@ -1,4 +1,6 @@
 from enum import Enum
+from ctypes import cdll, byref, create_string_buffer
+import subprocess as sp
 
 
 class Singleton(type):
@@ -28,6 +30,27 @@ class AttributeDict(dict):
                 nested_list.append(cls.attributize_dict(value))
             return nested_list
         return obj
+
+
+def set_proc_name(newname):
+    """Set the current process name"""
+    libc = cdll.LoadLibrary('libc.so.6')
+    buff = create_string_buffer(len(newname)+1)
+    buff.value = newname
+    libc.prctl(15, byref(buff), 0, 0, 0)
+
+
+def get_proc_name():
+    """Get the current process name"""
+    libc = cdll.LoadLibrary('libc.so.6')
+    buff = create_string_buffer(128)
+    # 16 == PR_GET_NAME from <linux/prctl.h>
+    libc.prctl(16, byref(buff), 0, 0, 0)
+    return buff.value
+
+
+def pgrep(grep):
+    return sp.getoutput(f'pgrep {grep}')
 
 
 class NodeType(Enum):

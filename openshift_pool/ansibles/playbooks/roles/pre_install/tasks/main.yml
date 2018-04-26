@@ -54,7 +54,12 @@
           --enable="rhel-7-server-rpms" \
           --enable="rhel-7-server-extras-rpms" \
           --enable="rhel-7-server-ose-{{ ocp_version }}-rpms" \
-          --enable="rhel-7-fast-datapath-rpms"
+          --enable="rhel-7-fast-datapath-rpms" \
+          --enable="rhel-7-server-ansible-2.4-rpms"
+
+- name: Enable ansible rpms
+  when: ocp_version == "3.9"
+  shell: subscription-manager repos --enable="rhel-7-server-ansible-2.4-rpms"
 
 - name: Installing delta RPM
   # Reason:
@@ -83,3 +88,7 @@
       - sos
       - psacct
       - atomic-openshift-utils
+      - docker
+
+- name:
+  shell: systemctl restart dbus

@@ -5,15 +5,25 @@
     dest: "{{ path_to_inventory }}"
     mode: "0644"
 
-- name: "Generate the cmdline"
+- name: "Generate the prerequisites cmdline"
   set_fact:
-    ose_ansible_playbook_cmdline: "ansible-playbook --ssh-common-args '-o StrictHostKeyChecking=no' -b --become-user root -vv -i {{ path_to_inventory }} {{ path_to_playbook }}"
+    pre_ansible_playbook_cmdline: "ansible-playbook --ssh-common-args '-o StrictHostKeyChecking=no' -b --become-user root -vvvv -i {{ path_to_inventory }} {{ path_to_pre_playbook }}"
 
-- name: "Display the cmdline"
-  debug: var=ose_ansible_playbook_cmdline
+- name: "Generate the deploy_cluster cmdline"
+  set_fact:
+    dep_ansible_playbook_cmdline: "ansible-playbook --ssh-common-args '-o StrictHostKeyChecking=no' -b --become-user root -vvvv -i {{ path_to_inventory }} {{ path_to_playbook }}"
 
-- name: "Execute openshift-ansible playbook"
-  shell: "{{ ose_ansible_playbook_cmdline }} 2>&1 | tee {{ path_to_ansible_log }}"
+- name: "Execute prerequisites playbook"
+  shell: "{{ pre_ansible_playbook_cmdline }} 2>&1 | tee {{ path_to_pre_ansible_log }}"
+  args:
+    executable: "/bin/bash"
+    chdir: "/root"
+    creates: "{{ path_to_pre_ansible_log }}"
+  tags:
+    - skip_ansible_lint
+
+- name: "Execute deploy_cluster playbook"
+  shell: "{{ dep_ansible_playbook_cmdline }} 2>&1 | tee {{ path_to_ansible_log }}"
   args:
     executable: "/bin/bash"
     chdir: "/root"

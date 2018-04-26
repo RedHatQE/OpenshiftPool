@@ -3,17 +3,23 @@ import argparse
 
 from openshift_pool.openshift.cluster import OpenshiftClusterBuilder
 from openshift_pool.env import config_workspace_as_cwd
-from openshift_pool.common import NodeType
+from openshift_pool.common import NodeType, pgrep, set_proc_name
 from openshift_pool.openshift.stack import StackBuilder
 
 
 config_workspace_as_cwd()
+PROCESS_NAME = 'openshiftdeployer'
 
 
 parser = argparse.ArgumentParser()
 
 
 operation_subparser = parser.add_subparsers(dest='operation', help='operation')
+
+create_parser = operation_subparser.add_parser('create', help='Creating a stack')
+create_parser.add_argument('stack_name', action='store', help='The name of the stack')
+create_parser.add_argument('node_types', action='store',
+                           help='The type of type nodes, all of them should be master, infra or compute')
 
 deploy_parser = operation_subparser.add_parser('deploy', help='Deploying a cluster')
 deploy_parser.add_argument('cluster_name', action='store', help='The name of the cluster')
@@ -28,7 +34,7 @@ delete_parser.add_argument('-f', '--force', dest='force', required=False, action
 
 
 def parse_commend(namespace):
-    if namespace.operation == 'deploy':
+    if namespace.operation in ('create', 'deploy'):
         try:
             node_types = [next(nt for nt in NodeType if nt.value == node_type.lower())
                           for node_type in namespace.node_types.split(',')]
@@ -45,20 +51,25 @@ def parse_commend(namespace):
             print(f'Cluster with the given name "{namespace.cluster_name}" is already exists!')
             return
 
-        version = re.match('\d\.\d', namespace.version)
-        if not version or version.group() not in OpenshiftClusterBuilder().SUPPORTED_VERSIONS:
-            print(f'Unsupported version: {version.group()}. '
-                  f'Supported versions: {", ".join(OpenshiftClusterBuilder().SUPPORTED_VERSIONS)}')
-            return
+        if namespace.operation == 'deploy':
 
-        cluster = OpenshiftClusterBuilder().create(
-            namespace.cluster_name, node_types, namespace.version
-        )
-        print('Openshift cluster has successfully deployed.')
-        print('-'*50)
-        print(cluster.ssh.exec_command('oc version')[1].read())
-        print('Nodes:')
-        print(cluster.ssh.exec_command('oc get nodes')[1].read())
+            version = re.match('\d\.\d', namespace.version)
+            if not version or version.group() not in OpenshiftClusterBuilder().SUPPORTED_VERSIONS:
+                print(f'Unsupported version: {version.group()}. '
+                      f'Supported versions: {", ".join(OpenshiftClusterBuilder().SUPPORTED_VERSIONS)}')
+                return
+
+            cluster = OpenshiftClusterBuilder().create(
+                namespace.cluster_name, node_types, namespace.version
+            )
+            print('Openshift cluster has successfully deployed.')
+            print('-'*50)
+            print(cluster.ssh.exec_command('oc version')[1].read())
+            print('Nodes:')
+            print(cluster.ssh.exec_command('oc get nodes')[1].read())
+
+        elif namespace.operation == 'create':
+            return  # TODO: Implement
 
     if namespace.operation == 'delete':
         cluster = OpenshiftClusterBuilder().get(namespace.cluster_name)
@@ -71,7 +82,11 @@ def parse_commend(namespace):
 
 
 def main():
-    print(parse_commend(parser.parse_args()))
+    if pgrep(PROCESS_NAME):
+        print('Can only run 1 process at once.')
+        return
+    set_proc_name(PROCESS_NAME)
+    parse_commend(parser.parse_args())
 
 
 if __name__ == '__main__':
