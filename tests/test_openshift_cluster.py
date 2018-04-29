@@ -5,10 +5,10 @@ Created on Feb 20, 2018
 '''
 import pytest
 
-from openshift_pool.openshift.cluster import OpenshiftClusterBuilder
-from openshift_pool.env import config_workspace_as_cwd
-from openshift_pool.exceptions import StackNotFoundException
-from openshift_pool.common import NodeType
+from shiftstack.openshift.cluster import OpenshiftClusterBuilder
+from shiftstack.env import config_workspace_as_cwd
+from shiftstack.exceptions import StackNotFoundException
+from shiftstack.common import NodeType
 
 config_workspace_as_cwd()
 

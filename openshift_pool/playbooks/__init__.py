@@ -7,7 +7,7 @@ from ansible.inventory.manager import InventoryManager
 from config import CONFIG_DATA
 
 
-PLAYBOOKS_DIR = os.path.join(os.path.dirname(__file__), 'playbooks')
+PLAYBOOKS_DIR = os.path.join(os.path.dirname(__file__))
 
 
 class Options(object):

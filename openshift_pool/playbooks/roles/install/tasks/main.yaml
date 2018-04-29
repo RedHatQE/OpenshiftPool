@@ -11,7 +11,7 @@
 
 - name: "Generate the deploy_cluster cmdline"
   set_fact:
-    dep_ansible_playbook_cmdline: "ansible-playbook --ssh-common-args '-o StrictHostKeyChecking=no' -b --become-user root -vvvv -i {{ path_to_inventory }} {{ path_to_playbook }}"
+    dep_ansible_playbook_cmdline: "ansible-playbook --ssh-common-args '-o StrictHostKeyChecking=no' -b --become-user root -vvvv -i {{ path_to_inventory }} {{ (path_to_old_playbook if ocp_version in ('3.5', '3.6', '3.7') else path_to_new_playbook) }}"
 
 - name: "Execute prerequisites playbook"
   shell: "{{ pre_ansible_playbook_cmdline }} 2>&1 | tee {{ path_to_pre_ansible_log }}"

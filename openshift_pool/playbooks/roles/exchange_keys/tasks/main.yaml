@@ -1,0 +1,33 @@
+- name: "Deploy keys for root"
+  become: true
+  become_method: sudo
+  copy:
+    src: "{{ config_dir }}/keys/stack/{{ item }}"
+    dest: "/root/.ssh/{{ item }}"
+    mode: "0600"
+  with_items:
+    - "id_rsa"
+    - "id_rsa.pub"
+
+- name: "Deploy keys for cloud-user"
+  become: true
+  become_method: sudo
+  copy:
+    src: "{{ config_dir }}/keys/stack/{{ item }}"
+    dest: "/home/cloud-user/.ssh/{{ item }}"
+    mode: "0600"
+  with_items:
+    - "id_rsa"
+    - "id_rsa.pub"
+
+- name: "Exchange keys for root"
+  authorized_key:
+    user: "root"
+    key: "{{ lookup('file', '{{ config_dir }}/keys/stack/authorized_keys') }}"
+    state: "present"
+
+- name: "Exchange keys for cloud-user"
+  authorized_key:
+    user: "cloud-user"
+    key: "{{ lookup('file', '{{ config_dir }}/keys/stack/authorized_keys') }}"
+    state: "present"

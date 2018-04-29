@@ -8,13 +8,14 @@ import keystoneclient.v2_0.client as ksclient
 from heatclient.client import Client
 from wait_for import wait_for
 
-from config import CONFIG_DATA
+from config import CONFIG_DATA, CONFIG_DIR
 from openshift_pool.openshift.templates import templates
 from openshift_pool.common import Singleton, NodeType
 from openshift_pool.exceptions import (StackNotFoundException,
                                        NameServerUpdateException,
                                        StackAlreadyExistsException)
 from openshift_pool.openshift.management_env import ManagementEnv
+from openshift_pool.playbooks import run_ansible_playbook
 
 
 class StackBuilder(object):
@@ -80,6 +81,20 @@ class StackBuilder(object):
         """Return whether the stack with the given name exists"""
         return Stack(name).create_complete
 
+    def exchange_keys(self, stack):
+        """Exchanging the keys to the stack instances.
+            @param stack: `Stack`
+        """
+        stack.mgmt_env.write_file(
+            'exchange_keys_inventory',
+            templates.pre_install_inventory.render(**stack.hosts_data)
+        )
+        return run_ansible_playbook(
+            'exchange_keys', stack.mgmt_env.file_abspath('exchange_keys_inventory'), extra_vars=dict(
+                config_dir=CONFIG_DIR
+            )
+        )
+
     def create(self, name, instance_names, instance_types):
         assert isinstance(name, str)
         assert len(instance_names) == len(instance_types)
@@ -102,6 +117,7 @@ class StackBuilder(object):
         self.heat_client.stacks.create(stack_name=stack.name, template=json.dumps(template))
         wait_for(lambda s: s.create_complete, [stack], delay=10, timeout=300)
         self._create_domains(stack)
+        self.exchange_keys(stack)
         return stack
 
     def delete(self, stack):

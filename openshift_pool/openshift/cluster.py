@@ -8,7 +8,7 @@ from config import CONFIG_DIR, CONFIG_DATA
 from openshift_pool.common import Singleton, NodeType
 from openshift_pool.openshift.stack import Stack, StackBuilder, StackInstance
 from openshift_pool.openshift.templates import templates
-from openshift_pool.ansibles import run_ansible_playbook
+from openshift_pool.playbooks import run_ansible_playbook
 from openshift_pool.exceptions import StackNotFoundException, CannotDetectNodeTypeException
 from openshift_pool.openshift.management_env import PickleShelf
 
@@ -60,21 +60,6 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             )
         )
 
-    def _gen_node_names(self, node_types):
-        """Generate node names from node types.
-            @param node_types: (`list`) of `NodeType` the node types
-            @rtype: (`list` of `str`)
-        """
-        names = []
-        for node_type in node_types:
-            base_name = self.NODE_NAME_BASE_PATTERN.format(node_type=node_type.value)
-            full_pattern = base_name + self.NODE_NAME_INDEX_PATTERN
-            i = 0
-            while full_pattern.format(n=i) in names:
-                i += 1
-            names.append(full_pattern.format(n=i))
-        return names
-
     def _fetch_nodes_from_stack_instances(self, stack):
         """Fetching the nodes from the stack outputs.
             @param stack: (`Stack`) the stack to fetch from.
@@ -110,6 +95,21 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
         # cluster.metadata['xy_version'] = cluster.xy_version
         cluster.metadata['flavor'] = CONFIG_DATA['openstack']['parameters']['flavor']
         cluster.metadata.save()
+
+    def gen_node_names(self, node_types):
+        """Generate node names from node types.
+            @param node_types: (`list`) of `NodeType` the node types
+            @rtype: (`list` of `str`)
+        """
+        names = []
+        for node_type in node_types:
+            base_name = self.NODE_NAME_BASE_PATTERN.format(node_type=node_type.value)
+            full_pattern = base_name + self.NODE_NAME_INDEX_PATTERN
+            i = 0
+            while full_pattern.format(n=i) in names:
+                i += 1
+            names.append(full_pattern.format(n=i))
+        return names
 
     def get(self, name):
         """Getting a cluster by name.
@@ -148,7 +148,7 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
         assert NodeType.MASTER in node_types, 'Cluster must include at least 1 master'
         assert any(filter(lambda t: t in node_types, [NodeType.INFRA, NodeType.COMPUTE])), \
             'Cluster must include at least 1 additional node except master'
-        stack = StackBuilder().create(name, self._gen_node_names(node_types), node_types)
+        stack = StackBuilder().create(name, self.gen_node_names(node_types), node_types)
         cluster = OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
         self._create_metadata(cluster)
         self.deploy(cluster, version)

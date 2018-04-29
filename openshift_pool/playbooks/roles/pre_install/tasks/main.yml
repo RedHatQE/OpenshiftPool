@@ -1,37 +1,3 @@
-- name: "Deploy keys for root"
-  become: true
-  become_method: sudo
-  copy:
-    src: "{{ config_dir }}/keys/stack/{{ item }}"
-    dest: "/root/.ssh/{{ item }}"
-    mode: "0600"
-  with_items:
-    - "id_rsa"
-    - "id_rsa.pub"
-
-- name: "Deploy keys for cloud-user"
-  become: true
-  become_method: sudo
-  copy:
-    src: "{{ config_dir }}/keys/stack/{{ item }}"
-    dest: "/home/cloud-user/.ssh/{{ item }}"
-    mode: "0600"
-  with_items:
-    - "id_rsa"
-    - "id_rsa.pub"
-
-- name: "Exchange keys for root"
-  authorized_key:
-    user: "root"
-    key: "{{ lookup('file', '{{ config_dir }}/keys/stack/id_rsa.pub') }}"
-    state: "present"
-
-- name: "Exchange keys for cloud-user"
-  authorized_key:
-    user: "cloud-user"
-    key: "{{ lookup('file', '{{ config_dir }}/keys/stack/id_rsa.pub') }}"
-    state: "present"
-
 - name: "Update subscription auth server"
   replace:
       path: /etc/rhsm/rhsm.conf
@@ -90,5 +56,20 @@
       - atomic-openshift-utils
       - docker
 
-- name:
+- name: Restarting dbus service
   shell: systemctl restart dbus
+
+- name: Restarting nodes
+  shell: nohup bash -c "sleep 2s && shutdown -r now" &
+
+- name: Wait for nodes to come back
+  wait_for_connection:
+    timeout: 240
+    delay: 20
+
+- shell: sleep 10; systemctl status dbus
+  register: dbus_status
+
+- debug: 
+  var: dbus_status
+  verbosity: 2
