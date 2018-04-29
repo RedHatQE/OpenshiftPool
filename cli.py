@@ -64,9 +64,9 @@ def parse_commend(namespace):
             )
             print('Openshift cluster has successfully deployed.')
             print('-'*50)
-            print(cluster.ssh.exec_command('oc version')[1].read())
+            print(cluster.master_nodes[0].ssh.exec_command('oc version')[1].read())
             print('Nodes:')
-            print(cluster.ssh.exec_command('oc get nodes')[1].read())
+            print(cluster.master_nodes[0].ssh.exec_command('oc get nodes')[1].read())
             print('-'*50)
 
         elif namespace.operation == 'create':
