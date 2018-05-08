@@ -37,11 +37,11 @@ openshift_metrics_hawkular_hostname=hawkular-metrics.{{ openshift_master_default
 
 [nodes]
 {% for host in master_nodes %}
-{{ host }} openshift_hostname={{ host }}
+{{ host }} openshift_public_hostname={{ host }}
 {% endfor %}
 {% for host in infra_nodes %}
-{{ host }} openshift_hostname={{ host }} openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+{{ host }} openshift_public_hostname={{ host }} openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
 {% endfor %}
 {% for host in compute_nodes %}
-{{ host }} openshift_hostname={{ host }} openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
+{{ host }} openshift_public_hostname={{ host }} openshift_node_labels="{'region': 'primary', 'zone': 'default'}"
 {% endfor %}
