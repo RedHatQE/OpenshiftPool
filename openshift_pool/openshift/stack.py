@@ -10,7 +10,7 @@ from wait_for import wait_for
 
 from config import CONFIG_DATA, CONFIG_DIR
 from openshift_pool.openshift.templates import templates
-from openshift_pool.common import Singleton, NodeType
+from openshift_pool.common import Singleton, NodeType, Loggable
 from openshift_pool.exceptions import (StackNotFoundException,
                                        NameServerUpdateException,
                                        StackAlreadyExistsException)
@@ -18,8 +18,10 @@ from openshift_pool.openshift.management_env import ManagementEnv
 from openshift_pool.playbooks import run_ansible_playbook
 
 
-class StackBuilder(object):
-    __metaclass__ = Singleton
+class StackBuilder(Loggable, metaclass=Singleton):
+
+    def __init__(self):
+        Loggable.__init__(self)
 
     @cached_property
     def config_data(self):
@@ -48,6 +50,7 @@ class StackBuilder(object):
         """
         assert isinstance(stack, Stack)
         assert method in ('create', 'delete')
+        self.log.info(f'Config domains for "{stack.name}"; method={method}; check_connection_attempts={check_connection_attempts};')
         hosts_data = stack.hosts_data
         infra_hosts = [hosts_data['host_ips'][name] for name in hosts_data['host_ips'].keys()
                        if hosts_data['instance_types'][name] == NodeType.INFRA.value]
@@ -62,6 +65,7 @@ class StackBuilder(object):
         assert not nsupdate_results.returncode, 'nsupdate failed: {}'.format(nsupdate_results.stdout)
         connection_attempts = 1
         while connection_attempts < check_connection_attempts:
+            self.log.info(f'Waiting for the instances domains: connection_attempts={connection_attempts}')
             connection_statuses = stack.get_connection_statuses()
             if (
                 method == 'create' and all(connection_statuses.values()) or
@@ -85,12 +89,13 @@ class StackBuilder(object):
         """Exchanging the keys to the stack instances.
             @param stack: `Stack`
         """
+        self.log.info('Exchanging keys to instances.')
         stack.mgmt_env.write_file(
             'exchange_keys_inventory',
             templates.pre_install_inventory.render(**stack.hosts_data)
         )
         return run_ansible_playbook(
-            'exchange_keys', stack.mgmt_env.file_abspath('exchange_keys_inventory'), extra_vars=dict(
+            'exchange_keys', stack.mgmt_env.file_abspath('exchange_keys_inventory'), self.log, extra_vars=dict(
                 config_dir=CONFIG_DIR
             )
         )
@@ -99,6 +104,8 @@ class StackBuilder(object):
         assert isinstance(name, str)
         assert len(instance_names) == len(instance_types)
         assert NodeType.MASTER in instance_types, 'Stack must include master instance'
+
+        self.log.info(f'Creating stack: name={name}; instance_names={instance_names}; instance_types={instance_types};')
 
         params = {}
 
@@ -122,6 +129,7 @@ class StackBuilder(object):
 
     def delete(self, stack):
         assert isinstance(stack, Stack)
+        self.log.info(f'Deleting stack: {stack.name}')
         self._delete_domains(stack)
         stack.stack.delete()
         wait_for(lambda s: s.delete_complete, func_args=[stack], delay=10, timeout=120)
@@ -144,10 +152,12 @@ class StackInstance(object):
 class Stack(object):
     """
     Stack class contains all the required functionality to manage the stack.
-        @param name: (`str`) The name of the stack
     """
 
     def __init__(self, name):
+        """
+        @param name: (`str`) The name of the stack
+        """
         self._name = name
         self._stack = None
 

@@ -3,9 +3,11 @@ import shutil
 
 import yaml
 import pickle
+from cached_property import cached_property
 
-from openshift_pool.env import ENV
+from openshift_pool.env import ENV, LOG_LEVEL, setup_logger
 from openshift_pool.exceptions import ManagementEnvAlreadyExists
+from openshift_pool.common import Loggable
 
 
 class PickleShelf(dict):
@@ -35,7 +37,7 @@ class PickleShelf(dict):
             pickle.dump(self, f)
 
 
-class ManagementEnv(object):
+class ManagementEnv(Loggable):
     """
     This class represents the directory which all the logs, data, metadata of each cluster.
     It used to keep isolated env for each one so the logs will be saved under its directory.
@@ -43,6 +45,7 @@ class ManagementEnv(object):
     """
     def __init__(self, dirname):
         self._dirname = dirname
+        Loggable.__init__(self, f'{self.file_abspath("log.log")}')
 
     def __repr__(self):
         return '<{} {}>'.format(self.__class__.__name__, self._dirname)
@@ -82,6 +85,7 @@ class ManagementEnv(object):
             @param filename: `str` The file name.
             @param content: `str` The file content.
         """
+        self.log.info(f'Writing file: {filename}')
         with open(self.file_abspath(filename), 'w') as f:
             f.write(content)
 
