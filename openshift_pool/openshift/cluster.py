@@ -5,7 +5,7 @@ from datetime import datetime
 from cached_property import cached_property
 
 from config import CONFIG_DIR, CONFIG_DATA
-from openshift_pool.common import Singleton, NodeType
+from openshift_pool.common import Singleton, NodeType, Loggable
 from openshift_pool.openshift.stack import Stack, StackBuilder, StackInstance
 from openshift_pool.openshift.templates import templates
 from openshift_pool.playbooks import run_ansible_playbook
@@ -13,22 +13,26 @@ from openshift_pool.exceptions import StackNotFoundException, CannotDetectNodeTy
 from openshift_pool.openshift.management_env import PickleShelf
 
 
-class OpenshiftClusterBuilder(metaclass=Singleton):
+class OpenshiftClusterBuilder(Loggable, metaclass=Singleton):
     NODE_NAME_BASE_PATTERN = 'ocp-{node_type}'
     NODE_NAME_INDEX_PATTERN = '-{n}'
     SUPPORTED_VERSIONS = ['3.5', '3.6', '3.7', '3.9']
+
+    def __init__(self):
+        Loggable.__init__(self)
 
     def _run_pre_install(self, cluster, version):
         """Running the pre-installation ansible tasks.
             @param cluster: `OpenshiftCluster`
             @param version: `str` the openshift version for the pre-installation.
         """
+        self.log.info(f'Running pre-installation ansible script on cluster {cluster.name}.')
         cluster.mgmt_env.write_file(
             'pre_install_inventory',
             templates.pre_install_inventory.render(**cluster.stack.hosts_data)
         )
         return run_ansible_playbook(
-            'pre_install', cluster.mgmt_env.file_abspath('pre_install_inventory'), extra_vars=dict(
+            'pre_install', cluster.mgmt_env.file_abspath('pre_install_inventory'), self.log, extra_vars=dict(
                 subscription_username=CONFIG_DATA['subscription_manager']['username'],
                 subscription_password=CONFIG_DATA['subscription_manager']['password'],
                 pool_id=CONFIG_DATA['subscription_manager']['pool'],
@@ -43,13 +47,14 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             @param cluster: `OpenshiftCluster`
             @param version: `str` the openshift version for the installation.
         """
+        self.log.info(f'Running installation ansible script on cluster {cluster.name}.')
         cluster.mgmt_env.write_file(
             'install_inventory',
             templates.install_inventory.render(
                 deployer_host_fqdn=[node.fqdn for node in cluster.nodes if node.type == NodeType.MASTER].pop())
         )
         return run_ansible_playbook(
-            'install', cluster.mgmt_env.file_abspath('install_inventory'),
+            'install', cluster.mgmt_env.file_abspath('install_inventory'), self.log,
             extra_vars=dict(
                 ocp_version=version,
                 logs_directory=cluster.mgmt_env.path,
@@ -65,6 +70,7 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             @param stack: (`Stack`) the stack to fetch from.
             @rtype: (`list' of `Node`)
         """
+        self.log.info(f'Fetching nodes from {stack.name} instances')
         nodes = []
         outputs = stack.stack_outputs
         for instance in stack.instances:
@@ -81,6 +87,7 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             if not node:
                 raise CannotDetectNodeTypeException(instance.fqdn)
             nodes.append(node)
+        self.log.debug(f'Fetched Nodes: {[node.type.value for node in nodes]}')
         return nodes
 
     def _create_metadata(self, cluster):
@@ -117,8 +124,9 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             @raise ClusterNotFoundException: When the cluster not found.
             @rtype: `OpenshiftCluster`.
         """
+        self.log.debug(f'Getting a cluster by name: name={name}')
         stack = Stack(name)
-        if not stack.create_complete:
+        if not stack.create_complete or not stack.create_failed:
             raise StackNotFoundException(name)
         return OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
 
@@ -128,6 +136,7 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             @param version: (`str`) The Openshift version to deploy.
             @rtype: `OpenshiftCluster`
         """
+        self.log.info(f'Deploying openshift cluster: {cluster.name} version={version}')
         result = self._run_pre_install(cluster, version)
         assert result == 0, 'Ansible playbook "{}" returned with status code: {}'.format(
             'pre_install', result)  # TODO: better exception
@@ -148,6 +157,7 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
         assert NodeType.MASTER in node_types, 'Cluster must include at least 1 master'
         assert any(filter(lambda t: t in node_types, [NodeType.INFRA, NodeType.COMPUTE])), \
             'Cluster must include at least 1 additional node except master'
+        self.log.info(f'Creating cluster: {name} node_types={[t.value for t in node_types]}; version={version}')
         stack = StackBuilder().create(name, self.gen_node_names(node_types), node_types)
         cluster = OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
         self._create_metadata(cluster)
@@ -159,12 +169,21 @@ class OpenshiftClusterBuilder(metaclass=Singleton):
             @param cluster: (`OpenshiftCluster`)
             @rtype: `Stack`
         """
+        self.log.info(f'Deleting cluster: {cluster.name}')
         return StackBuilder().delete(cluster.stack)
 
 
 class Node(object):
+    """This class represents a Node.
 
-    def __init__(self, node_type, stack_instance):
+    It contains all the function and properties that related to specific node.
+    """
+
+    def __init__(self, node_type: NodeType, stack_instance: StackInstance):
+        """
+        @param node_type: `NodeType` The type of the node.
+        @param stack: `StackInstance` The stack instance.
+        """
         assert isinstance(node_type, NodeType)
         assert isinstance(stack_instance, StackInstance)
         self._type = node_type
@@ -188,8 +207,17 @@ class Node(object):
 
 
 class OpenshiftCluster(object):
+    """
+    The openshift cluster class.
 
-    def __init__(self, stack, nodes):
+    It contains all the related function and properties of the cluster.
+    """
+
+    def __init__(self, stack: Stack, nodes: list):
+        """
+        @param stack: `Stack` The stack.
+        @param param: `list` of `Node` The nodes of the cluster.
+        """
         assert isinstance(stack, Stack)
         assert all(isinstance(node, Node) for node in nodes)
         self._stack = stack

@@ -1,6 +1,11 @@
-from enum import Enum
-from ctypes import cdll, byref, create_string_buffer
 import subprocess as sp
+import logging
+from ctypes import cdll, byref, create_string_buffer
+
+from enum import Enum
+
+from openshift_pool.env import LOG_LEVEL, setup_logger, LOG_FORMATTER,\
+    MAIN_LOG_FILE
 
 
 class Singleton(type):
@@ -57,3 +62,20 @@ class NodeType(Enum):
     MASTER = 'master'
     INFRA = 'infra'
     COMPUTE = 'compute'
+
+
+class Loggable:
+    """
+    This class provides a logging ability to the inherit object.
+    """
+    def __init__(self, log_file=None):
+        self._logger = setup_logger(f'{self.__class__.__name__}_log', log_file or MAIN_LOG_FILE, LOG_LEVEL)
+
+    def add_logging_file(self, log_file: str):
+        handler = logging.FileHandler(log_file)
+        handler.setFormatter(LOG_FORMATTER)
+        self._logger.addHandler(handler)
+
+    @property
+    def log(self):
+        return self._logger

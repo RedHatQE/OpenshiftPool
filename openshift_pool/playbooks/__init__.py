@@ -38,7 +38,7 @@ class Options(object):
         self.diff = diff
 
 
-def run_ansible_playbook(playbook_name, inventory_path, extra_vars={}, options={}):
+def run_ansible_playbook(playbook_name, inventory_path, logger, extra_vars={}, options={}):
     """Running an ansible playbook.
     Args:
         :param `str` playbook_name: The name of the playbook. Only the name, Without dir and extension.
@@ -65,4 +65,5 @@ def run_ansible_playbook(playbook_name, inventory_path, extra_vars={}, options={
         options=options, passwords={}
     )
     # Running the playbook
+    logger.info(f'Running ansible playbook: {playbook_name} (inventory: {inventory_path})')
     return playbook_exec.run()
