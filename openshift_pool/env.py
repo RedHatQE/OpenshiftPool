@@ -26,6 +26,9 @@ def setup_logger(name, log_file, level=LOG_LEVEL) -> logging.Logger:
     """Function setup as many loggers as you want"""
 
     if not os.path.exists(log_file):
+        dr = os.path.isdir(log_file)
+        if not dr:
+            os.makedirs(dr)
         with open(log_file, 'w'):
             pass
     file_handler = logging.FileHandler(log_file)
