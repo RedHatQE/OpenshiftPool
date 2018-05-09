@@ -6,14 +6,15 @@ import paramiko
 from cached_property import cached_property
 import keystoneclient.v2_0.client as ksclient
 from heatclient.client import Client
-from wait_for import wait_for
+from wait_for import wait_for, TimedOutError
 
 from config import CONFIG_DATA, CONFIG_DIR
 from openshift_pool.openshift.templates import templates
 from openshift_pool.common import Singleton, NodeType, Loggable
 from openshift_pool.exceptions import (StackNotFoundException,
                                        NameServerUpdateException,
-                                       StackAlreadyExistsException)
+                                       StackAlreadyExistsException,
+                                       StackCreationFailedException)
 from openshift_pool.openshift.management_env import ManagementEnv
 from openshift_pool.playbooks import run_ansible_playbook
 
@@ -123,7 +124,11 @@ class StackBuilder(Loggable, metaclass=Singleton):
         template = stack.mgmt_env.read_yaml('ocp_stack.yaml')
         template['heat_template_version'] = template['heat_template_version'].strftime('%Y-%m-%d')
         self.heat_client.stacks.create(stack_name=stack.name, template=json.dumps(template))
-        wait_for(lambda s: s.create_complete, [stack], delay=10, timeout=300)
+        try:
+            wait_for(lambda s: s.create_complete, [stack], delay=10, timeout=90, logger=self.log)
+        except TimedOutError:
+            self.log.error(f'Stack creatiopn failed. reason: {stack.stack_status_reason}')
+            raise StackCreationFailedException(stack.name, stack.stack_status_reason)
         self._create_domains(stack)
         self.exchange_keys(stack)
         return stack
@@ -203,6 +208,10 @@ class Stack(object):
             return
         self.stack.get()
         return self._stack.stack_status.upper()
+
+    @property
+    def stack_status_reason(self):
+        return self.stack.to_dict().get('stack_status_reason') or ''
 
     @property
     def create_complete(self):
