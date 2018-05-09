@@ -126,7 +126,7 @@ class OpenshiftClusterBuilder(Loggable, metaclass=Singleton):
         """
         self.log.debug(f'Getting a cluster by name: name={name}')
         stack = Stack(name)
-        if not stack.create_complete:
+        if not stack.create_complete or not stack.create_failed:
             raise StackNotFoundException(name)
         return OpenshiftCluster(stack, self._fetch_nodes_from_stack_instances(stack))
 

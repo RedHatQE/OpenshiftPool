@@ -3,9 +3,8 @@ import shutil
 
 import yaml
 import pickle
-from cached_property import cached_property
 
-from openshift_pool.env import ENV, LOG_LEVEL, setup_logger
+from openshift_pool.env import ENV
 from openshift_pool.exceptions import ManagementEnvAlreadyExists
 from openshift_pool.common import Loggable
 

@@ -1,4 +1,3 @@
-import os
 import subprocess as sp
 import logging
 from ctypes import cdll, byref, create_string_buffer
@@ -73,7 +72,7 @@ class Loggable:
         self._logger = setup_logger(f'{self.__class__.__name__}_log', log_file or MAIN_LOG_FILE, LOG_LEVEL)
 
     def add_logging_file(self, log_file: str):
-        handler = logging.FileHandler(log_file)        
+        handler = logging.FileHandler(log_file)
         handler.setFormatter(LOG_FORMATTER)
         self._logger.addHandler(handler)
 

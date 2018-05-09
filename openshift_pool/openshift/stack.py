@@ -50,7 +50,8 @@ class StackBuilder(Loggable, metaclass=Singleton):
         """
         assert isinstance(stack, Stack)
         assert method in ('create', 'delete')
-        self.log.info(f'Config domains for "{stack.name}"; method={method}; check_connection_attempts={check_connection_attempts};')
+        self.log.info(f'Config domains for "{stack.name}"; method={method}; '
+                      f'check_connection_attempts={check_connection_attempts};')
         hosts_data = stack.hosts_data
         infra_hosts = [hosts_data['host_ips'][name] for name in hosts_data['host_ips'].keys()
                        if hosts_data['instance_types'][name] == NodeType.INFRA.value]
@@ -205,11 +206,15 @@ class Stack(object):
 
     @property
     def create_complete(self):
-        return 'CREATE_COMPLETE' == self.status or False
+        return 'CREATE_COMPLETE' == self.status
+
+    @property
+    def create_failed(self):
+        return 'CREATE_FAILED' == self.status
 
     @property
     def delete_complete(self):
-        return 'DELETE_COMPLETE' == self.status or False
+        return 'DELETE_COMPLETE' == self.status
 
     @property
     def stack_outputs(self):
