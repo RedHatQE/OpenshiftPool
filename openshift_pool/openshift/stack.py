@@ -1,10 +1,11 @@
 import os
-import subprocess as sp
+import subprocess
 import json
 import paramiko
+import time
 
 from cached_property import cached_property
-import keystoneclient.v2_0.client as ksclient
+from keystoneclient.v2_0 import client as ksclient
 from heatclient.client import Client
 from wait_for import wait_for, TimedOutError
 
@@ -25,16 +26,20 @@ class StackBuilder(Loggable, metaclass=Singleton):
         Loggable.__init__(self)
 
     @cached_property
-    def config_data(self):
+    def openstack_details(self):
         return CONFIG_DATA['openstack']
+
+    @cached_property
+    def ssh_details(self):
+        return CONFIG_DATA['ssh']
 
     @cached_property
     def keystone_client(self):
         return ksclient.Client(
-            username=self.config_data['username'],
-            password=self.config_data['password'],
-            auth_url=self.config_data['auth_url'],
-            tenant_name=self.config_data['tenant_name']
+            username=self.openstack_details['username'],
+            password=self.openstack_details['password'],
+            auth_url=self.openstack_details['auth_url'],
+            tenant_name=self.openstack_details['tenant_name']
         )
 
     @cached_property
@@ -63,9 +68,10 @@ class StackBuilder(Loggable, metaclass=Singleton):
         nsupdate_name = '{}_domains'.format(method)
         nsupdate_path = stack.mgmt_env.file_abspath(nsupdate_name)
         stack.mgmt_env.write_file(nsupdate_path, getattr(templates, nsupdate_name).render(**hosts_data))
-        nsupdate_results = sp.run(['nsupdate', nsupdate_path])
+        nsupdate_results = subprocess.run(['nsupdate', nsupdate_path])
         assert not nsupdate_results.returncode, 'nsupdate failed: {}'.format(nsupdate_results.stdout)
         connection_attempts = 1
+
         while connection_attempts < check_connection_attempts:
             self.log.info(f'Waiting for the instances domains: connection_attempts={connection_attempts}')
             connection_statuses = stack.get_connection_statuses()
@@ -75,6 +81,8 @@ class StackBuilder(Loggable, metaclass=Singleton):
                     ):
                 return
             connection_attempts += 1
+            time.sleep(20)
+
         raise NameServerUpdateException(stack.name)
 
     def _create_domains(self, stack):
@@ -113,8 +121,8 @@ class StackBuilder(Loggable, metaclass=Singleton):
 
         params['stack_name'] = name
         params['instances'] = list(zip(instance_names, [t.value for t in instance_types]))
-        params.update(self.config_data['parameters'])
-        params.update(self.config_data)
+        params.update(self.openstack_details['parameters'])
+        params.update(self.openstack_details)
 
         stack = Stack(name)
         if stack.create_complete:
@@ -142,10 +150,11 @@ class StackBuilder(Loggable, metaclass=Singleton):
         stack.mgmt_env.delete()
 
 
-class StackInstance(object):
+class StackInstance(Loggable):
 
     def __init__(self, fqdn):
         self.fqdn = fqdn
+        Loggable.__init__(self)
 
     @cached_property
     def ssh(self):
@@ -155,7 +164,7 @@ class StackInstance(object):
         return client
 
 
-class Stack(object):
+class Stack(Loggable):
     """
     Stack class contains all the required functionality to manage the stack.
     """
@@ -166,10 +175,15 @@ class Stack(object):
         """
         self._name = name
         self._stack = None
+        Loggable.__init__(self)
 
     @cached_property
     def heat_client(self):
         return StackBuilder().heat_client
+
+    @cached_property
+    def ssh_details(self):
+        return CONFIG_DATA["ssh"]
 
     @cached_property
     def name(self):
@@ -267,8 +281,37 @@ class Stack(object):
 
     def get_connection_statuses(self):
         """Return a LUT that contains each node and its connectivity by the domain"""
+
         out = {}
+
+        def test_ping(hostname):
+            self.log.debug(f"testing ping connectivity to host {hostname}")
+            result = subprocess.run(['ping', '-c', '1', hostname], stdout = subprocess.PIPE)
+            self.log.debug(f"[STDOUT]: {result.stdout}")
+            self.log.debug(f"[STDERR]: {result.stderr}")
+            self.log.debug(f"[RC]: {result.returncode}")
+
+            return bool(not result.returncode)
+
+        def test_ssh(hostname, username, password):
+            try:
+                self.log.debug(f"testing ssh connectivity to host {hostname} (creds: {username}\{password})")
+                is_ssh = False
+                client = paramiko.SSHClient()
+                client.load_system_host_keys()
+                client.set_missing_host_key_policy(paramiko.MissingHostKeyPolicy())
+                client.connect(hostname,username=username,password=password)
+                is_ssh = client.get_transport().isAlive()
+            except Exception:
+                pass
+            finally:
+                client.close()
+                return is_ssh
+
         for hostname in self.hosts_data['host_names'].values():
-            out[hostname] = not sp.run(
-                ['ping', '-c', '1', hostname]).returncode
+            ssh_state = test_ssh(hostname, self.ssh_details["username"], self.ssh_details["password"])
+            ping_state = test_ping(hostname)
+            self.log.info(f"{hostname}: PING {ping_state}, SSH {ssh_state}")
+            out[hostname] = ssh_state and ping_state
+
         return out
