@@ -1,4 +1,5 @@
 .project
+.idea
 .pydevproject
 *.pyc
 *.config
@@ -6,7 +7,7 @@
 .env36
 .pytest_cache
 .settings
-config/keys/*
-config/config.yaml
-workspace
+config/
+workspace/
 *.retry
+
