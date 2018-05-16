@@ -5,7 +5,7 @@ import paramiko
 import time
 
 from cached_property import cached_property
-from keystoneclient.v2_0 import client as ksclient
+import keystoneclient.v2_0.client as ksclient
 from heatclient.client import Client
 from wait_for import wait_for, TimedOutError
 
@@ -15,7 +15,8 @@ from openshift_pool.common import Singleton, NodeType, Loggable
 from openshift_pool.exceptions import (StackNotFoundException,
                                        NameServerUpdateException,
                                        StackAlreadyExistsException,
-                                       StackCreationFailedException)
+                                       StackCreationFailedException,
+                                       MissingConfiguragtion)
 from openshift_pool.openshift.management_env import ManagementEnv
 from openshift_pool.playbooks import run_ansible_playbook
 
@@ -35,12 +36,15 @@ class StackBuilder(Loggable, metaclass=Singleton):
 
     @cached_property
     def keystone_client(self):
-        return ksclient.Client(
-            username=self.openstack_details['username'],
-            password=self.openstack_details['password'],
-            auth_url=self.openstack_details['auth_url'],
-            tenant_name=self.openstack_details['tenant_name']
-        )
+        try:
+            kwargs = dict(username=self.openstack_details['username'],
+                          password=self.openstack_details['password'],
+                          auth_url=self.openstack_details['auth_url'],
+                          tenant_name=self.openstack_details['tenant_name'])
+        except KeyError as e:
+            raise MissingConfiguragtion(str(e.args[0]))
+
+        return ksclient.Client(**kwargs)
 
     @cached_property
     def heat_client(self):
@@ -72,6 +76,7 @@ class StackBuilder(Loggable, metaclass=Singleton):
         assert not nsupdate_results.returncode, 'nsupdate failed: {}'.format(nsupdate_results.stdout)
         connection_attempts = 1
 
+        # TODO: refactor this block to use wait_for
         while connection_attempts < check_connection_attempts:
             self.log.info(f'Waiting for the instances domains: connection_attempts={connection_attempts}')
             connection_statuses = stack.get_connection_statuses()
@@ -81,6 +86,8 @@ class StackBuilder(Loggable, metaclass=Singleton):
                     ):
                 return
             connection_attempts += 1
+
+            # Setting a delay before chacking the system stat again
             time.sleep(20)
 
         raise NameServerUpdateException(stack.name)
