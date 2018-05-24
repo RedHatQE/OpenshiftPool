@@ -59,10 +59,3 @@ class EnvarNotDefinedException(BaseException):
 
     def __str__(self):
         return 'Environment variable must be defined: {}'.format(self._envvar)
-
-class MissingConfiguragtion(BaseException):
-    def __init__(self, missing_arg):
-        self._missing_args = missing_arg
-
-    def __str__(self):
-        return f"""The parameter "{self._missing_args}" is missing in the config file"""

@@ -3,10 +3,7 @@ subscription_manager:
   password: 
   pool: 
   auth_server: 
-ssh:
-  username:
-  password:
-private_key_file:
+private_key_file: 
 openstack:
   auth_url: 
   project_name: 

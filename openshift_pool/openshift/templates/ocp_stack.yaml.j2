@@ -55,7 +55,7 @@ resources:
             "suffix%": { get_attr: [ ocp_deployment_pqdn, value ] }
       image: {{ params['image'] }}
       flavor: {{ params['flavor'] }}
-      key_name: {{ params['key_name']}}
+      key_name: secret
       networks:
         - port: { get_resource: {{ name }}_port }
       user_data_format: SOFTWARE_CONFIG

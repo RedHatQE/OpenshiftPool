@@ -1,8 +1,3 @@
-- name: "Wait for SSH connection"
-  wait_for_connection:
-    delay: 5
-    timeout: 300
-
 - name: "Deploy keys for root"
   become: true
   become_method: sudo

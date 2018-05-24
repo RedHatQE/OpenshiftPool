@@ -10,5 +10,4 @@
 config/
 workspace/
 *.retry
-!config/config.template.yaml
 
